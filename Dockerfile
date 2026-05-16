@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
     curl \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,4 +37,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 
 EXPOSE ${STATS_PORT:-8080}
 
-CMD ["python", "-m", "ghostmusic"]
+CMD ["python", "__main__.py"]
