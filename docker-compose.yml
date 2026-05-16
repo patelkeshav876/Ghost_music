@@ -1,0 +1,34 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════
+#  GhostMusic Bot — Docker Compose
+#  Usage: docker-compose up -d
+# ══════════════════════════════════════════════════════════
+
+services:
+  ghostmusic:
+    build: .
+    container_name: ghostmusic-bot
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${STATS_PORT:-8080}:${STATS_PORT:-8080}"
+    volumes:
+      # Persist Pyrogram session files
+      - ./sessions:/app/sessions
+      # Persist yt-dlp cache
+      - ytdlp_cache:/home/ghostmusic/.cache/yt-dlp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${STATS_PORT:-8080}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ytdlp_cache:

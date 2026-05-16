@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>GhostMusic — Bot Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --blue:#1B4FDB; --blue-d:#0F2E8A; --blue-l:#3B7BFF; --blue-pale:#EEF3FF;
+  --red:#E8574A; --green:#16a34a; --amber:#b45309;
+  --ink:#0D1117; --muted:rgba(13,17,23,.5); --border:rgba(13,17,23,.1);
+  --surface:#F8F9FE; --white:#fff;
+  --r:14px; --r-sm:8px;
+  --font:'Outfit',sans-serif; --mono:'DM Mono',monospace;
+  --nav:64px;
+  --t:all .2s cubic-bezier(.4,0,.2,1);
+}
+[data-dark]{
+  --ink:#F0F4FF; --muted:rgba(240,244,255,.45); --border:rgba(240,244,255,.1);
+  --surface:#0D1117; --white:#12121e; --blue-pale:#111827;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:var(--font);background:var(--surface);color:var(--ink);overflow-x:hidden;transition:background .3s,color .3s;}
+a{color:inherit;text-decoration:none;}
+button{cursor:pointer;font-family:var(--font);border:none;background:none;}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;height:var(--nav);
+  background:rgba(255,255,255,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);}
+[data-dark] nav{background:rgba(13,17,23,.85);}
+.nav-inner{max-width:1400px;margin:0 auto;height:100%;display:flex;align-items:center;gap:10px;padding:0 24px;}
+.nav-logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;color:var(--blue);}
+.nav-logo span{color:var(--ink);}
+.nav-logo .logo-pill{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--blue),var(--blue-d));
+  display:flex;align-items:center;justify-content:center;font-size:16px;}
+.nav-back{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r-sm);
+  background:var(--border);color:var(--muted);font-size:13px;font-weight:500;transition:var(--t);margin-left:4px;}
+.nav-back:hover{color:var(--ink);background:var(--blue-pale);}
+.nav-crumb{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+.nav-crumb a{color:var(--blue);}
+.nav-right{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.icon-btn{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:15px;border:1px solid var(--border);transition:var(--t);color:var(--muted);}
+.icon-btn:hover{background:var(--border);color:var(--ink);}
+.server-badge{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;
+  font-size:12px;font-weight:600;background:var(--blue-pale);color:var(--blue);border:1px solid rgba(27,79,219,.15);}
+.server-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:ping 2s infinite;}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5);}70%{box-shadow:0 0 0 8px transparent;}100%{box-shadow:0 0 0 0 transparent;}}
+
+/* LAYOUT */
+.layout{display:flex;padding-top:var(--nav);min-height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:230px;flex-shrink:0;position:sticky;top:var(--nav);height:calc(100vh - var(--nav));
+  overflow-y:auto;border-right:1px solid var(--border);background:var(--white);padding:16px 10px;
+  display:flex;flex-direction:column;gap:2px;}
+[data-dark] .sidebar{background:#0a0f1a;}
+.sb-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);padding:12px 10px 6px;}
+.sb-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);
+  font-size:13px;font-weight:500;color:var(--muted);transition:var(--t);cursor:pointer;width:100%;text-align:left;}
+.sb-item:hover{color:var(--ink);background:var(--border);}
+.sb-item.active{color:var(--blue);background:var(--blue-pale);font-weight:600;}
+.sb-item .si{font-size:15px;}
+.sb-badge{margin-left:auto;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;
+  background:var(--red);color:#fff;}
+.sb-footer{margin-top:auto;padding:12px 8px;border-top:1px solid var(--border);}
+
+/* MAIN */
+.main{flex:1;overflow:auto;}
+.panel{display:none;padding:28px;max-width:1200px;}
+.panel.active{display:block;}
+.panel-title{font-size:28px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px;}
+.panel-sub{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;margin-bottom:24px;}
+
+/* METRICS */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+.metric{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:20px;transition:var(--t);}
+[data-dark] .metric{background:#111827;}
+.metric:hover{border-color:rgba(27,79,219,.25);box-shadow:0 4px 16px rgba(27,79,219,.08);}
+.metric-val{font-size:32px;font-weight:900;letter-spacing:-1px;line-height:1;margin-bottom:4px;}
+.metric-val.grad{background:linear-gradient(135deg,var(--blue),var(--blue-l));-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text;}
+.metric-lbl{font-size:12px;color:var(--muted);font-weight:500;}
+.metric-change{font-size:11px;margin-top:8px;font-weight:600;display:flex;align-items:center;gap:3px;}
+.up{color:var(--green);} .down{color:var(--red);} .neutral{color:var(--muted);}
+
+/* CARDS */
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px;}
+[data-dark] .card{background:#111827;}
+.card-title{font-size:14px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
+.card-action{font-size:12px;color:var(--blue);font-weight:600;cursor:pointer;padding:4px 10px;
+  border-radius:var(--r-sm);transition:var(--t);}
+.card-action:hover{background:var(--blue-pale);}
+
+/* GRIDS */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:700;font-size:11px;
+  text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:rgba(27,79,219,.03);}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;}
+.bg{background:rgba(22,163,74,.1);color:var(--green);}
+.br{background:rgba(232,87,74,.1);color:var(--red);}
+.bb{background:rgba(27,79,219,.1);color:var(--blue);}
+.by{background:rgba(180,83,9,.1);color:var(--amber);}
+.dot-live{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;}
+
+/* NOW PLAYING CARDS */
+.stream-card{background:linear-gradient(135deg,var(--blue),var(--blue-d));border-radius:var(--r);
+  padding:20px;color:#fff;position:relative;overflow:hidden;margin-bottom:12px;}
+.stream-card::before{content:'🎵';position:absolute;right:16px;top:12px;font-size:48px;opacity:.15;}
+.stream-name{font-size:16px;font-weight:700;margin-bottom:4px;}
+.stream-meta{font-size:12px;opacity:.7;margin-bottom:12px;}
+.stream-controls{display:flex;gap:8px;flex-wrap:wrap;}
+.ctrl-btn{padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;transition:var(--t);cursor:pointer;}
+.ctrl-primary{background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.2);}
+.ctrl-primary:hover{background:rgba(255,255,255,.35);}
+.ctrl-danger{background:rgba(232,87,74,.3);color:#fff;border:1px solid rgba(232,87,74,.3);}
+.ctrl-danger:hover{background:var(--red);}
+.stream-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;
+  font-size:11px;font-weight:700;background:rgba(255,255,255,.15);}
+.vol-bar{height:4px;background:rgba(255,255,255,.2);border-radius:2px;margin-top:12px;overflow:hidden;}
+.vol-fill{height:100%;background:#fff;border-radius:2px;transition:width .5s;}
+
+/* INPUTS */
+.inp,.ta,.sel{width:100%;background:var(--border);border:1.5px solid var(--border);border-radius:var(--r-sm);
+  padding:10px 14px;font-size:13px;font-family:var(--font);color:var(--ink);outline:none;transition:var(--t);}
+.inp:focus,.ta:focus,.sel:focus{border-color:var(--blue);background:var(--white);}
+[data-dark] .inp:focus,[data-dark] .ta:focus{background:#1a2234;}
+.ta{resize:none;height:100px;}
+.fg{margin-bottom:14px;}
+.fl{font-size:12px;font-weight:700;margin-bottom:6px;display:block;color:var(--ink);}
+
+/* TOGGLE */
+.tog{width:42px;height:24px;border-radius:12px;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+.tog.on{background:var(--blue);}
+.tog.off{background:var(--border);}
+.tog::after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;
+  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.2);}
+.tog.on::after{left:21px;}
+.tog.off::after{left:3px;}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:var(--r-sm);
+  font-size:13px;font-weight:700;transition:var(--t);cursor:pointer;}
+.btn-blue{background:var(--blue);color:#fff;}
+.btn-blue:hover{background:var(--blue-l);box-shadow:0 4px 12px rgba(27,79,219,.3);}
+.btn-ghost{border:1.5px solid var(--border);color:var(--muted);}
+.btn-ghost:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-pale);}
+.btn-red{background:var(--red);color:#fff;}
+.btn-red:hover{opacity:.85;}
+
+/* MINI CHART */
+.chart{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:12px;}
+.bar{flex:1;border-radius:3px 3px 0 0;background:var(--blue);opacity:.25;min-height:4px;transition:opacity .15s;}
+.bar:hover{opacity:1;}
+.bar.hi{opacity:.7;}
+.chart-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:6px;}
+
+/* SETTINGS */
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border);}
+.set-row:last-child{border-bottom:none;}
+.set-name{font-size:13px;font-weight:600;}
+.set-desc{font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* LOGS */
+.log-line{font-size:11px;font-family:var(--mono);padding:4px 8px;border-bottom:1px solid var(--border);}
+.log-info{color:var(--blue);}
+.log-warn{color:var(--amber);}
+.log-err{color:var(--red);background:rgba(232,87,74,.05);}
+.log-ok{color:var(--green);}
+
+/* SERVER HEALTH */
+.health-item{padding:14px 16px;border:1px solid var(--border);border-radius:var(--r-sm);
+  background:var(--white);display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+[data-dark] .health-item{background:#111827;}
+.health-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.health-info{flex:1;}
+.health-name{font-size:13px;font-weight:700;}
+.health-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+.progress{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;}
+.progress-fill{height:100%;border-radius:2px;transition:width .5s;}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:48px 24px;color:var(--muted);}
+.empty-icon{font-size:48px;margin-bottom:16px;opacity:.4;}
+.empty-text{font-size:14px;}
+
+/* RESPONSIVE */
+@media(max-width:1024px){.metrics{grid-template-columns:1fr 1fr;} .g2,.g3{grid-template-columns:1fr;}}
+@media(max-width:768px){.sidebar{display:none;} .metrics{grid-template-columns:1fr 1fr;}}
+@media(max-width:480px){.metrics{grid-template-columns:1fr;}}
+
+/* ANIMATIONS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+.panel.active > *{animation:fadeUp .3s ease both;}
+.panel.active > *:nth-child(2){animation-delay:.05s;}
+.panel.active > *:nth-child(3){animation-delay:.1s;}
+.panel.active > *:nth-child(4){animation-delay:.15s;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <div class="logo-pill">🎵</div>
+      Ghost<span>Music</span>
+    </div>
+    <a class="nav-back" href="index.html">← Back to Platform</a>
+    <div class="nav-crumb">
+      <a href="index.html">GhostTalk</a> / <span>GhostMusic Dashboard</span>
+    </div>
+    <div class="nav-right">
+      <div class="server-badge" id="server-status"><span class="dot"></span> Connecting...</div>
+      <button class="icon-btn" onclick="toggleTheme()" id="theme-btn">🌙</button>
+      <button class="icon-btn" onclick="loadAll()" title="Refresh">↻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-label">Overview</div>
+    <button class="sb-item active" onclick="sp('overview',this)"><span class="si">📊</span> Dashboard</button>
+    <button class="sb-item" onclick="sp('streams',this)"><span class="si">🎵</span> Live Streams <span class="sb-badge" id="sb-active">0</span></button>
+
+    <div class="sb-label">Management</div>
+    <button class="sb-item" onclick="sp('groups',this)"><span class="si">👥</span> Groups</button>
+    <button class="sb-item" onclick="sp('broadcast',this)"><span class="si">📢</span> Broadcast</button>
+    <button class="sb-item" onclick="sp('logs',this)"><span class="si">📋</span> Logs</button>
+
+    <div class="sb-label">System</div>
+    <button class="sb-item" onclick="sp('health',this)"><span class="si">💚</span> Health</button>
+    <button class="sb-item" onclick="sp('settings',this)"><span class="si">⚙️</span> Settings</button>
+
+    <div class="sb-footer">
+      <a href="https://t.me/GhostMusicBot" target="_blank" class="btn btn-blue" style="width:100%;justify-content:center;font-size:12px;padding:9px">
+        ✈️ Open Bot
+      </a>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- ── OVERVIEW ── -->
+    <div class="panel active" id="p-overview">
+      <div class="panel-title">Dashboard</div>
+      <div class="panel-sub">
+        <span class="dot-live" style="color:var(--green);width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span>
+        Live data from GhostMusic bot
+        <button onclick="loadAll()" style="color:var(--blue);font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--blue-pale)">↻ Refresh</button>
+        <span id="last-updated" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><div class="metric-val grad" id="mv-streams">—</div><div class="metric-lbl">Active Streams</div><div class="metric-change neutral">Right now</div></div>
+        <div class="metric"><div class="metric-val grad" id="mv-users">—</div><div class="metric-lbl">Total Users</div><div class="metric-change up">↑ Growing</div></div>
+        <div class="metric"><div class="metric-val grad" id="mv-plays">—</div><div class="metric-lbl">Total Plays</div><div class="metric-change up">↑ All time</div></div>
+        <div class="metric"><div class="metric-val grad" id="mv-chats">—</div><div class="metric-lbl">Groups Registered</div><div class="metric-change neutral">All time</div></div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <div class="card-title">Active Streams <span class="card-action" onclick="sp('streams',document.querySelectorAll('.sb-item')[1])">View all →</span></div>
+          <div id="stream-preview">
+            <div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">No active streams</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Weekly Activity <span>plays per day</span></div>
+          <div class="chart" id="activity-chart">
+            <div class="bar" style="height:30%"></div><div class="bar" style="height:50%"></div>
+            <div class="bar" style="height:65%"></div><div class="bar" style="height:40%"></div>
+            <div class="bar" style="height:80%"></div><div class="bar" style="height:55%"></div>
+            <div class="bar hi" style="height:90%"></div>
+          </div>
+          <div class="chart-labels"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Today</span></div>
+          <div style="margin-top:16px">
+            <div class="card-title" style="margin-bottom:10px">Quick Actions</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-blue" onclick="sp('broadcast',document.querySelectorAll('.sb-item')[3])">📢 Broadcast</button>
+              <button class="btn btn-ghost" onclick="sp('streams',document.querySelectorAll('.sb-item')[1])">🎵 Streams</button>
+              <button class="btn btn-ghost" onclick="sp('health',document.querySelectorAll('.sb-item')[6])">💚 Health</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── LIVE STREAMS ── -->
+    <div class="panel" id="p-streams">
+      <div class="panel-title">Live Streams</div>
+      <div class="panel-sub">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span>
+        Real-time music playback across all groups
+        <button onclick="loadAll()" style="color:var(--blue);font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--blue-pale)">↻</button>
+      </div>
+      <div id="streams-list">
+        <div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">No active streams right now.<br/>Start playing music in a group!</div></div>
+      </div>
+    </div>
+
+    <!-- ── GROUPS ── -->
+    <div class="panel" id="p-groups">
+      <div class="panel-title">Groups</div>
+      <div class="panel-sub">All groups/channels using GhostMusic</div>
+      <div class="card">
+        <table class="tbl">
+          <thead><tr><th>Group ID</th><th>Plays</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="groups-body">
+            <tr><td colspan="4" style="text-align:center;padding:24px;color:var(--muted)">Refresh to load group data</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── BROADCAST ── -->
+    <div class="panel" id="p-broadcast">
+      <div class="panel-title">Broadcast</div>
+      <div class="panel-sub">Send a message to all groups using GhostMusic</div>
+      <div class="card">
+        <div class="fg"><div class="fl">Message</div>
+          <textarea class="ta" id="bc-msg" placeholder="Type your message… (*bold* _italic_ supported)" oninput="updateBcCount()"></textarea>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <span style="font-size:12px;color:var(--muted)" id="bc-chars">0 / 1000</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="previewBc()">👁 Preview</button>
+            <button class="btn btn-blue" onclick="sendBc()">📢 Send to All Groups</button>
+          </div>
+        </div>
+        <div id="bc-preview" style="display:none;margin-top:14px;padding:14px;background:var(--border);border-radius:var(--r-sm);font-size:13px"></div>
+      </div>
+      <div class="card"><div class="card-title">History</div><div id="bc-history" style="font-size:13px;color:var(--muted)">No broadcasts sent.</div></div>
+    </div>
+
+    <!-- ── LOGS ── -->
+    <div class="panel" id="p-logs">
+      <div class="panel-title">System Logs</div>
+      <div class="panel-sub">Recent bot activity log</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="log-container" style="max-height:500px;overflow-y:auto">
+          <div class="log-line log-ok">✅ GhostMusic bot started successfully</div>
+          <div class="log-line log-info">ℹ️ PyTgCalls engine initialized</div>
+          <div class="log-line log-info">ℹ️ MongoDB connected</div>
+          <div class="log-line log-ok">✅ Stats API listening on :8080</div>
+          <div class="log-line log-info">ℹ️ All handlers loaded</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HEALTH ── -->
+    <div class="panel" id="p-health">
+      <div class="panel-title">System Health</div>
+      <div class="panel-sub">Service status and resource usage</div>
+      <div class="g3" style="margin-bottom:16px">
+        <div class="metric"><div class="metric-val" id="hv-uptime">—</div><div class="metric-lbl">Uptime</div></div>
+        <div class="metric"><div class="metric-val" id="hv-streams">—</div><div class="metric-lbl">Active Streams</div></div>
+        <div class="metric"><div class="metric-val" id="hv-users">—</div><div class="metric-lbl">Total Users</div></div>
+      </div>
+      <div class="health-item">
+        <div class="health-icon" style="background:rgba(27,79,219,.1)">🤖</div>
+        <div class="health-info">
+          <div class="health-name">GhostMusic Bot</div>
+          <div class="health-meta">Pyrogram + PyTgCalls • Music streaming</div>
+          <div class="progress"><div class="progress-fill" style="width:45%;background:var(--blue)"></div></div>
+        </div>
+        <span class="badge bg" id="bot-status"><span class="dot-live"></span> Online</span>
+      </div>
+      <div class="health-item">
+        <div class="health-icon" style="background:rgba(22,163,74,.1)">🗄️</div>
+        <div class="health-info">
+          <div class="health-name">MongoDB</div>
+          <div class="health-meta">motor async driver • Database layer</div>
+          <div class="progress"><div class="progress-fill" style="width:20%;background:var(--green)"></div></div>
+        </div>
+        <span class="badge bg"><span class="dot-live"></span> Connected</span>
+      </div>
+      <div class="health-item">
+        <div class="health-icon" style="background:rgba(180,83,9,.1)">📡</div>
+        <div class="health-info">
+          <div class="health-name">Stats API</div>
+          <div class="health-meta">aiohttp • Port <span id="api-port">8080</span></div>
+          <div class="progress"><div class="progress-fill" style="width:10%;background:var(--amber)"></div></div>
+        </div>
+        <span class="badge bg" id="api-status"><span class="dot-live"></span> Running</span>
+      </div>
+      <div class="health-item">
+        <div class="health-icon" style="background:rgba(232,87,74,.1)">🔉</div>
+        <div class="health-info">
+          <div class="health-name">FFmpeg</div>
+          <div class="health-meta">Audio processing engine • Required for streaming</div>
+          <div class="progress"><div class="progress-fill" style="width:5%;background:var(--red)"></div></div>
+        </div>
+        <span class="badge bg"><span class="dot-live"></span> Available</span>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS ── -->
+    <div class="panel" id="p-settings">
+      <div class="panel-title">Settings</div>
+      <div class="panel-sub">Configure GhostMusic bot connection</div>
+      <div class="g2">
+        <div class="card">
+          <div class="card-title">API Connection</div>
+          <div class="fg"><div class="fl">Stats API URL</div>
+            <input class="inp" id="api-url" placeholder="http://your-server:8080" oninput="saveUrl()"/>
+          </div>
+          <div class="fg"><div class="fl">Secret Key</div>
+            <input class="inp" type="password" id="api-secret" placeholder="your_stats_secret"/>
+          </div>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-blue" onclick="saveSettings()">Save & Test</button>
+            <button class="btn btn-ghost" onclick="testConnection()">🔌 Test Connection</button>
+          </div>
+          <div id="conn-result" style="margin-top:10px;font-size:13px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Feature Toggles</div>
+          <div class="set-row"><div><div class="set-name">AI Auto-DJ</div><div class="set-desc">Fill queue gaps with AI recommendations</div></div><button class="tog off" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+          <div class="set-row"><div><div class="set-name">Auto-Leave on Empty</div><div class="set-desc">Leave voice chat when queue empties</div></div><button class="tog on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+          <div class="set-row"><div><div class="set-name">Lyrics on Play</div><div class="set-desc">Auto-fetch lyrics when song starts</div></div><button class="tog off" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+          <div class="set-row"><div><div class="set-name">Auto Clean Messages</div><div class="set-desc">Delete bot messages after 60s</div></div><button class="tog on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Default Limits</div>
+        <div class="g3">
+          <div class="fg"><div class="fl">Max Queue Size</div><input class="inp" value="50" type="number"/></div>
+          <div class="fg"><div class="fl">Default Volume %</div><input class="inp" value="100" type="number"/></div>
+          <div class="fg"><div class="fl">Auto-leave Delay (sec)</div><input class="inp" value="60" type="number"/></div>
+        </div>
+        <button class="btn btn-blue">Save Limits</button>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+let API_URL    = localStorage.getItem('gm_api_url') || '';
+let API_SECRET = localStorage.getItem('gm_api_secret') || '';
+
+document.addEventListener('DOMContentLoaded', () => {
+  const urlEl = document.getElementById('api-url');
+  const secEl = document.getElementById('api-secret');
+  if (urlEl && API_URL)    urlEl.value = API_URL;
+  if (secEl && API_SECRET) secEl.value = API_SECRET;
+  loadAll();
+  setInterval(loadAll, 20000);
+});
+
+function saveUrl() {
+  API_URL = document.getElementById('api-url').value.trim();
+  localStorage.setItem('gm_api_url', API_URL);
+}
+
+// ═══════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════
+function sp(name, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('p-' + name).classList.add('active');
+  document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+}
+
+function toggleTheme() {
+  document.body.toggleAttribute('data-dark');
+  document.getElementById('theme-btn').textContent = document.body.hasAttribute('data-dark') ? '☀️' : '🌙';
+}
+
+// ═══════════════════════════════════════════════
+//  FETCH STATS
+// ═══════════════════════════════════════════════
+async function loadAll() {
+  if (!API_URL) {
+    setStatus('⚠️ Set API URL in Settings', false);
+    return;
+  }
+  try {
+    const res  = await fetch(API_URL + '/api/stats', {
+      headers: { 'X-Secret': API_SECRET }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    applyStats(data);
+    setStatus('● Connected', true);
+    document.getElementById('last-updated').textContent =
+      'Updated: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    setStatus('⚠️ Cannot reach server', false);
+  }
+}
+
+function setStatus(msg, ok) {
+  const el = document.getElementById('server-status');
+  el.textContent = msg;
+  el.style.background = ok ? 'rgba(22,163,74,.1)' : 'rgba(232,87,74,.1)';
+  el.style.color = ok ? 'var(--green)' : 'var(--red)';
+  const apiBadge = document.getElementById('api-status');
+  if (apiBadge) apiBadge.innerHTML = ok ? '<span class="dot-live"></span> Running' : '<span class="dot-live"></span> Unreachable';
+}
+
+function applyStats(data) {
+  setText('mv-streams', data.active_streams ?? 0);
+  setText('mv-users',   data.total_users  ?? 0);
+  setText('mv-plays',   data.total_plays  ?? 0);
+  setText('mv-chats',   data.total_chats  ?? 0);
+  setText('sb-active',  data.active_streams ?? 0);
+  setText('hv-streams', data.active_streams ?? 0);
+  setText('hv-users',   data.total_users ?? 0);
+
+  const streams = data.streams || [];
+  renderStreamPreview(streams);
+  renderStreamsPage(streams);
+  renderGroupsPage(streams);
+}
+
+function renderStreamPreview(streams) {
+  const el = document.getElementById('stream-preview');
+  if (!streams.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">No active streams</div></div>';
+    return;
+  }
+  el.innerHTML = streams.slice(0,3).map(s => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:20px">🎵</span>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${s.title || 'Unknown'}</div>
+        <div style="font-size:11px;color:var(--muted)">Chat: ${s.chat_id} · Queue: ${s.queue}</div>
+      </div>
+      <span class="badge ${s.paused ? 'by' : 'bg'}">${s.paused ? '⏸ Paused' : '▶️ Playing'}</span>
+    </div>`).join('');
+}
+
+function renderStreamsPage(streams) {
+  const el = document.getElementById('streams-list');
+  if (!streams.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">No active streams right now.</div></div>';
+    return;
+  }
+  el.innerHTML = streams.map(s => `
+    <div class="stream-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+        <div>
+          <div class="stream-name">${s.title || 'Unknown Track'}</div>
+          <div class="stream-meta">Chat ID: ${s.chat_id} · Volume: ${s.volume}% · Loop: ${s.loop}</div>
+        </div>
+        <span class="stream-badge">${s.paused ? '⏸ Paused' : '▶️ Live'}</span>
+      </div>
+      <div style="font-size:12px;opacity:.7;margin-bottom:12px">📋 Queue: ${s.queue} track(s) remaining</div>
+      <div class="vol-bar"><div class="vol-fill" style="width:${s.volume/2}%"></div></div>
+      <div class="stream-controls" style="margin-top:14px">
+        <button class="ctrl-btn ctrl-primary" onclick="stopStream(${s.chat_id})">⏹ Stop</button>
+        <button class="ctrl-btn ctrl-primary" onclick="alert('Open bot to control: /pause, /skip, /stop')">⚙️ Controls</button>
+        <button class="ctrl-btn ctrl-danger" onclick="stopStream(${s.chat_id})">🚪 Force Stop</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderGroupsPage(streams) {
+  const el = document.getElementById('groups-body');
+  if (!streams.length) {
+    el.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--muted)">No active groups</td></tr>';
+    return;
+  }
+  el.innerHTML = streams.map(s => `
+    <tr>
+      <td><code style="font-size:11px;background:var(--border);padding:2px 6px;border-radius:4px">${s.chat_id}</code></td>
+      <td>${s.queue ?? 0} queued</td>
+      <td><span class="badge ${s.is_playing ? 'bg' : 'br'}">${s.is_playing ? '▶️ Playing' : '⏹ Idle'}</span></td>
+      <td><button class="btn btn-ghost" style="padding:5px 12px;font-size:11px" onclick="stopStream(${s.chat_id})">Stop</button></td>
+    </tr>`).join('');
+}
+
+async function stopStream(chatId) {
+  if (!API_URL) return alert('Set API URL in Settings first!');
+  if (!confirm(`Stop stream in chat ${chatId}?`)) return;
+  try {
+    await fetch(`${API_URL}/api/stop/${chatId}`, {
+      method: 'POST',
+      headers: { 'X-Secret': API_SECRET }
+    });
+    addLog(`⏹ Stopped stream in chat ${chatId}`, 'warn');
+    loadAll();
+  } catch(e) { alert('Failed to stop stream.'); }
+}
+
+// ═══════════════════════════════════════════════
+//  BROADCAST
+// ═══════════════════════════════════════════════
+function updateBcCount() {
+  const t = document.getElementById('bc-msg').value;
+  document.getElementById('bc-chars').textContent = t.length + ' / 1000';
+}
+function previewBc() {
+  const msg = document.getElementById('bc-msg').value;
+  const p   = document.getElementById('bc-preview');
+  p.style.display = 'block';
+  p.innerHTML = '<strong>Preview:</strong><br/>' +
+    msg.replace(/\*(.+?)\*/g,'<strong>$1</strong>')
+       .replace(/_(.+?)_/g,'<em>$1</em>')
+       .replace(/\n/g,'<br/>');
+}
+async function sendBc() {
+  const msg = document.getElementById('bc-msg').value.trim();
+  if (!msg) return alert('Write a message first!');
+  if (!API_URL) return alert('Set API URL in Settings!');
+  if (!confirm('Send to ALL groups?')) return;
+  try {
+    const res  = await fetch(API_URL + '/api/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Secret': API_SECRET },
+      body: JSON.stringify({ message: msg })
+    });
+    const data = await res.json();
+    const h = document.getElementById('bc-history');
+    h.innerHTML = `<div style="padding:10px;border-radius:8px;background:var(--border);font-size:12px;margin-bottom:8px">
+      <strong>${new Date().toLocaleString()}</strong> · Sent: ${data.sent}, Failed: ${data.failed}<br/>
+      ${msg.slice(0, 80)}…</div>` + h.innerHTML;
+    document.getElementById('bc-msg').value = '';
+    document.getElementById('bc-preview').style.display = 'none';
+    addLog(`📢 Broadcast sent. Delivered: ${data.sent}, Failed: ${data.failed}`, 'ok');
+  } catch(e) { alert('Broadcast failed. Check API URL.'); }
+}
+
+// ═══════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════
+async function testConnection() {
+  const url = document.getElementById('api-url').value.trim();
+  const sec = document.getElementById('api-secret').value.trim();
+  const res_el = document.getElementById('conn-result');
+  if (!url) { res_el.innerHTML = '❌ Enter API URL first.'; return; }
+  try {
+    const res  = await fetch(url + '/api/health', { headers: { 'X-Secret': sec } });
+    const data = await res.json();
+    res_el.innerHTML = `<span style="color:var(--green)">✅ Connected! Status: ${data.status}</span>`;
+  } catch(e) {
+    res_el.innerHTML = `<span style="color:var(--red)">❌ Cannot connect: ${e.message}</span>`;
+  }
+}
+
+function saveSettings() {
+  API_URL    = document.getElementById('api-url').value.trim();
+  API_SECRET = document.getElementById('api-secret').value.trim();
+  localStorage.setItem('gm_api_url', API_URL);
+  localStorage.setItem('gm_api_secret', API_SECRET);
+  testConnection();
+  loadAll();
+}
+
+// ═══════════════════════════════════════════════
+//  LOGS
+// ═══════════════════════════════════════════════
+function addLog(msg, type='info') {
+  const el  = document.getElementById('log-container');
+  const cls = { info:'log-info', ok:'log-ok', warn:'log-warn', err:'log-err' }[type] || 'log-info';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + cls;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.insertBefore(div, el.firstChild);
+  if (el.children.length > 100) el.removeChild(el.lastChild);
+}
+
+// ═══════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+</script>
+</body>
+</html>
