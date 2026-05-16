@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from pytgcalls import PyTgCalls
+from pytgcalls import PyTgCalls, filters
 from pytgcalls.types import MediaStream
 from pyrogram import Client
 from pyrogram.types import Message
@@ -82,9 +82,14 @@ class StreamEngine:
         self._states: dict[int, ChatState] = {}
         self._locks:  dict[int, asyncio.Lock] = {}
 
-        # Wire PyTgCalls stream-end callback
-        self.calls.on_stream_end()(self._on_stream_end)
-        self.calls.on_closed_voice_chat()(self._on_vc_closed)
+        # Wire PyTgCalls stream-end callback (v3 style)
+        @self.calls.on_update(filters.stream_end)
+        async def stream_end_handler(client, update):
+            await self._on_stream_end(client, update)
+
+        @self.calls.on_update(filters.voice_chat_ended)
+        async def vc_ended_handler(client, update):
+            await self._on_vc_closed(client, update)
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Public API
@@ -147,9 +152,8 @@ class StreamEngine:
         try:
             await self.calls.play(chat_id, stream)
             logger.info(f"[{chat_id}] Streaming: {track.title}")
-            # Volume is set via stream parameters in v2 usually, but let's keep the helper
             try:
-                await self.calls.change_volume_call(chat_id, st.volume)
+                await self.calls.change_volume(chat_id, st.volume)
             except:
                 pass
         except Exception as e:
@@ -174,7 +178,7 @@ class StreamEngine:
         st = self.state(chat_id)
         if not st.is_playing or st.is_paused:
             return False
-        await self.calls.pause_stream(chat_id)
+        await self.calls.pause(chat_id)
         st.is_paused = True
         return True
 
@@ -182,7 +186,7 @@ class StreamEngine:
         st = self.state(chat_id)
         if not st.is_paused:
             return False
-        await self.calls.resume_stream(chat_id)
+        await self.calls.resume(chat_id)
         st.is_paused = False
         return True
 
@@ -195,9 +199,10 @@ class StreamEngine:
             st.is_playing = False
             st.is_paused  = False
         try:
-            await self.calls.leave_group_call(chat_id)
-        except Exception:
+            await self.calls.leave(chat_id)
+        except:
             pass
+        pass
         await self._cancel_idle_task(chat_id)
 
     async def stop_all(self):
@@ -267,7 +272,7 @@ class StreamEngine:
             st2 = self.state(chat_id)
             if not st2.is_playing:
                 try:
-                    await self.calls.leave_group_call(chat_id)
+                    await self.calls.leave(chat_id)
                     await self.bot.send_message(
                         chat_id, "👻 Left the voice chat (idle timeout)."
                     )

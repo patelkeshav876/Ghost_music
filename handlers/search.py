@@ -125,7 +125,7 @@ def register(app):
                     stream = MediaStream(track.url)
                     await eng.calls.play(cb.message.chat.id, stream)
                     try:
-                        await eng.calls.change_volume_call(cb.message.chat.id, st.volume)
+                        await eng.calls.change_volume(cb.message.chat.id, st.volume)
                     except:
                         pass
                 except Exception as e:
