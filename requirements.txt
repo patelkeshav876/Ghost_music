@@ -5,8 +5,8 @@
 # ══════════════════════════════════════════════════════════
 
 # ── Telegram MTProto client ───────────────────────────────
-pyrogram==2.0.106
-TgCrypto==1.2.5          # C-extension for faster crypto (required by Pyrogram)
+pyrogram
+TgCrypto
 
 # ── Voice chat streaming ──────────────────────────────────
 # py-tgcalls is the modern maintained fork (uses NTgCalls)
