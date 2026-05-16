@@ -21,9 +21,7 @@ WORKDIR /app
 # Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir ntgcalls \
- && pip install --no-cache-dir -r requirements.txt --no-deps \
- && pip install --no-cache-dir pyrogram TgCrypto motor pymongo aiohttp python-dotenv spotipy Pillow yt-dlp
+ && pip install --no-cache-dir -r requirements.txt
 
 # Copy source
 COPY . .
