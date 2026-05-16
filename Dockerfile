@@ -19,9 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python deps
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir pyrogram TgCrypto ntgcalls
+RUN pip install --no-cache-dir py-tgcalls
+RUN pip install --no-cache-dir yt-dlp motor pymongo aiohttp python-dotenv spotipy Pillow
 
 # Copy source
 COPY . .
