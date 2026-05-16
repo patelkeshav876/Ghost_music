@@ -10,7 +10,7 @@ TgCrypto==1.2.5          # C-extension for faster crypto (required by Pyrogram)
 
 # ── Voice chat streaming ──────────────────────────────────
 # py-tgcalls is the modern maintained fork (uses NTgCalls)
-pytgcalls==1.0.0
+pytgcalls==1.1.6
 
 # ── Audio download / extraction ──────────────────────────
 yt-dlp>=2024.11.4         # keep updating for YouTube compatibility
