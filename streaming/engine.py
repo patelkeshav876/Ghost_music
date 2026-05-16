@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional
 
 from pytgcalls import PyTgCalls
-from pytgcalls.types import MediaStream, AudioParameters, AudioQuality
+from pytgcalls.types import MediaStream
 from pyrogram import Client
 from pyrogram.types import Message
 
@@ -63,9 +63,9 @@ class ChatState:
 
 
 _QUALITY_MAP = {
-    "high":   AudioParameters.from_quality(AudioQuality.HIGH),
-    "medium": AudioParameters.from_quality(AudioQuality.MEDIUM),
-    "low":    AudioParameters.from_quality(AudioQuality.LOW),
+    "high":   None,
+    "medium": None,
+    "low":    None,
 }
 
 
@@ -142,8 +142,7 @@ class StreamEngine:
 
     async def _start_stream(self, chat_id: int, track: Track):
         """Tell PyTgCalls to start/switch to a track."""
-        audio_params = _QUALITY_MAP.get(cfg.STREAM_QUALITY, AudioParameters.from_quality(AudioQuality.HIGH))
-        stream = MediaStream(track.url, audio_parameters=audio_params)
+        stream = MediaStream(track.url)
         st = self.state(chat_id)
         try:
             await self.calls.play(chat_id, stream)
