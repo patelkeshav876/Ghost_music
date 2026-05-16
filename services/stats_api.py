@@ -42,7 +42,11 @@ class StatsAPI:
 
     @web.middleware
     async def _cors_middleware(self, request, handler):
-        resp = await handler(request)
+        if request.method == "OPTIONS":
+            resp = web.Response()
+        else:
+            resp = await handler(request)
+        
         resp.headers["Access-Control-Allow-Origin"]  = "*"
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Secret"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"

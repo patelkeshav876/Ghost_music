@@ -30,9 +30,9 @@ _YDL_BASE = {
 }
 
 _QUALITY_OPTS = {
-    "high":   "bestaudio[ext=m4a]/bestaudio/best",
-    "medium": "bestaudio[abr<=128]/bestaudio/best",
-    "low":    "bestaudio[abr<=64]/bestaudio/best",
+    "high":   "bestaudio",
+    "medium": "bestaudio",
+    "low":    "bestaudio",
 }
 
 # Detect raw YouTube URL
