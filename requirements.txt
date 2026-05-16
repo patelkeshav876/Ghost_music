@@ -1,41 +1,14 @@
 # ══════════════════════════════════════════════════════════
 #  GhostMusic Bot — Python Dependencies
-#  Pinned for stability. Python 3.10+ required.
-#  Install: pip install -r requirements.txt
 # ══════════════════════════════════════════════════════════
 
-# ── Telegram MTProto client ───────────────────────────────
 pyrogram
 TgCrypto
-
-# ── Voice chat streaming ──────────────────────────────────
-# py-tgcalls is the modern maintained fork (uses NTgCalls)
-pytgcalls==3.0.0.dev24
-
-# ── Audio download / extraction ──────────────────────────
-yt-dlp>=2024.11.4         # keep updating for YouTube compatibility
-
-# ── Database ──────────────────────────────────────────────
-motor==3.6.0              # async MongoDB driver
-pymongo==4.10.1
-
-# ── HTTP / REST API (stats server) ────────────────────────
-aiohttp==3.11.10
-
-# ── Config ────────────────────────────────────────────────
-python-dotenv==1.0.1
-
-# ── Optional: Spotify support ─────────────────────────────
-spotipy==2.24.0
-
-# ── Optional: Lyrics ──────────────────────────────────────
-# (lyrics.py uses aiohttp directly — no extra lib needed)
-
-# ── Utilities ─────────────────────────────────────────────
-Pillow==11.0.0            # thumbnail generation
-
-# ── FFmpeg is a system dependency, NOT a pip package ──────
-# Install on Ubuntu/Debian:
-#   sudo apt-get install -y ffmpeg
-# Install on macOS:
-#   brew install ffmpeg
+pytgcalls
+yt-dlp
+motor
+pymongo
+aiohttp
+python-dotenv
+spotipy
+Pillow
