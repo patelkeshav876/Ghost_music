@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional
 
 from pytgcalls import PyTgCalls
-from pytgcalls.types import AudioPiped, AudioParameters, AudioQuality
+from pytgcalls.types import MediaStream, AudioParameters, AudioQuality
 from pyrogram import Client
 from pyrogram.types import Message
 
@@ -143,16 +143,16 @@ class StreamEngine:
     async def _start_stream(self, chat_id: int, track: Track):
         """Tell PyTgCalls to start/switch to a track."""
         audio_params = _QUALITY_MAP.get(cfg.STREAM_QUALITY, AudioParameters.from_quality(AudioQuality.HIGH))
-        stream = AudioPiped(track.url, audio_parameters=audio_params)
+        stream = MediaStream(track.url, audio_parameters=audio_params)
         st = self.state(chat_id)
         try:
-            active = self.calls.active_calls
-            if chat_id in [c.chat_id for c in active]:
-                await self.calls.change_stream(chat_id, stream)
-            else:
-                await self.calls.join_group_call(chat_id, stream)
+            await self.calls.play(chat_id, stream)
             logger.info(f"[{chat_id}] Streaming: {track.title}")
-            await self.calls.change_volume_call(chat_id, st.volume)
+            # Volume is set via stream parameters in v2 usually, but let's keep the helper
+            try:
+                await self.calls.change_volume_call(chat_id, st.volume)
+            except:
+                pass
         except Exception as e:
             logger.error(f"[{chat_id}] Stream start error: {e}")
             await self.play_next(chat_id)

@@ -101,14 +101,13 @@ def register(app):
             await db.increment_stat(msg.chat.id, "tracks_queued")
 
             try:
-                from pytgcalls.types import AudioPiped, AudioParameters
-                stream = AudioPiped(first.url)
-                active = eng.calls.active_calls
-                if msg.chat.id in [c.chat_id for c in active]:
-                    await eng.calls.change_stream(msg.chat.id, stream)
-                else:
-                    await eng.calls.join_group_call(msg.chat.id, stream)
-                await eng.calls.change_volume_call(msg.chat.id, st.volume)
+                from pytgcalls.types import MediaStream
+                stream = MediaStream(first.url)
+                await eng.calls.play(msg.chat.id, stream)
+                try:
+                    await eng.calls.change_volume_call(msg.chat.id, st.volume)
+                except:
+                    pass
             except Exception as e:
                 logger.error(f"Play error: {e}")
                 await loading.edit(f"❌ Could not join voice chat. Make sure the assistant account is a member and the bot is admin with voice chat permissions.")
