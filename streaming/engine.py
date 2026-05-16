@@ -82,14 +82,9 @@ class StreamEngine:
         self._states: dict[int, ChatState] = {}
         self._locks:  dict[int, asyncio.Lock] = {}
 
-        # Wire PyTgCalls stream-end callback (v3 style)
         @self.calls.on_update(filters.stream_end)
         async def stream_end_handler(client, update):
             await self._on_stream_end(client, update)
-
-        @self.calls.on_update(filters.voice_chat_ended)
-        async def vc_ended_handler(client, update):
-            await self._on_vc_closed(client, update)
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Public API
