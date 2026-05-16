@@ -89,8 +89,11 @@ class GhostMusicBot:
         logger.info(f"Bot logged in as @{me.username} ({me.id})")
 
         # Start PyTgCalls
-        await self.calls.start()
-        logger.info("PyTgCalls engine started.")
+        if self.calls:
+            await self.calls.start()
+            logger.info("PyTgCalls engine started.")
+        else:
+            logger.warning("PyTgCalls engine not initialized. Voice chat features will be disabled.")
 
         # Load all handler modules dynamically
         self._load_handlers()
