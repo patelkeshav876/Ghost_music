@@ -6,6 +6,7 @@ pyrogram==2.0.106
 TgCrypto==1.2.5
 pytgcalls
 yt-dlp
+youtube-search-python
 motor
 pymongo
 aiohttp

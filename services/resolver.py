@@ -96,8 +96,23 @@ class Resolver:
     async def _resolve_youtube(
         self, query: str, req_id: int, req_name: str, chat_id: int
     ) -> list[Track]:
-        # Convert plain text to ytsearch
-        search_query = query if _YT_REGEX.match(query) else f"ytsearch5:{query}"
+        # Convert plain text to youtube url via youtube-search-python
+        search_query = query
+        if not _YT_REGEX.match(query):
+            try:
+                from youtubesearchpython.__future__ import VideosSearch
+                videosSearch = VideosSearch(query, limit=1)
+                videosResult = await videosSearch.next()
+                if videosResult and videosResult.get('result'):
+                    search_query = videosResult['result'][0]['link']
+                else:
+                    raise ValueError("No results found for that query.")
+            except ValueError as e:
+                raise e
+            except Exception as e:
+                logger.error(f"youtube-search-python error: {e}")
+                search_query = f"ytsearch5:{query}" # Fallback
+
 
         opts = {
             **_YDL_BASE,
@@ -203,25 +218,39 @@ class Resolver:
         """
         Used by inline mode: returns lightweight dicts (no full extraction).
         """
-        opts = {**_YDL_BASE, "extract_flat": True}
-        loop = asyncio.get_event_loop()
         try:
-            info = await loop.run_in_executor(
-                None, lambda: self._extract(f"ytsearch5:{query}", opts)
-            )
-        except Exception:
+            from youtubesearchpython.__future__ import VideosSearch
+            videosSearch = VideosSearch(query, limit=5)
+            videosResult = await videosSearch.next()
+            if not videosResult or not videosResult.get('result'):
+                return []
+            
+            results = []
+            for e in videosResult['result']:
+                # Parse duration like '4:20' to seconds
+                dur_str = e.get('duration', '0')
+                try:
+                    parts = dur_str.split(':')
+                    if len(parts) == 3:
+                        dur_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+                    elif len(parts) == 2:
+                        dur_sec = int(parts[0])*60 + int(parts[1])
+                    else:
+                        dur_sec = int(parts[0])
+                except:
+                    dur_sec = 0
+
+                results.append({
+                    "id":       e.get("id", ""),
+                    "title":    e.get("title", "Unknown"),
+                    "url":      e.get("link") or f"https://youtu.be/{e.get('id', '')}",
+                    "duration": dur_sec,
+                    "thumbnail": e.get("thumbnails", [{}])[0].get("url", ""),
+                })
+            return results
+        except Exception as e:
+            logger.error(f"youtube-search-python inline error: {e}")
             return []
-        entries = (info or {}).get("entries", [])
-        return [
-            {
-                "id":       e.get("id", ""),
-                "title":    e.get("title", "Unknown"),
-                "url":      e.get("url") or f"https://youtu.be/{e.get('id', '')}",
-                "duration": e.get("duration", 0),
-                "thumbnail":e.get("thumbnail", ""),
-            }
-            for e in entries if e
-        ]
 
 
 # Singleton
