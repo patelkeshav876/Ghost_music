@@ -98,6 +98,8 @@ class Resolver:
     ) -> list[Track]:
         # Convert plain text to youtube url via youtube-search-python
         search_query = query
+        song_title_fallback = query if not _YT_REGEX.match(query) else "Unknown"
+
         if not _YT_REGEX.match(query):
             try:
                 from youtubesearchpython.__future__ import VideosSearch
@@ -105,6 +107,7 @@ class Resolver:
                 videosResult = await videosSearch.next()
                 if videosResult and videosResult.get('result'):
                     search_query = videosResult['result'][0]['link']
+                    song_title_fallback = videosResult['result'][0]['title']
                 else:
                     raise ValueError("No results found for that query.")
             except ValueError as e:
@@ -113,49 +116,70 @@ class Resolver:
                 logger.error(f"youtube-search-python error: {e}")
                 search_query = f"ytsearch5:{query}" # Fallback
 
-
         opts = {
             **_YDL_BASE,
             "format": _QUALITY_OPTS.get(cfg.STREAM_QUALITY, _QUALITY_OPTS["high"]),
         }
 
         loop = asyncio.get_event_loop()
+        
+        async def do_extract(sq):
+            return await loop.run_in_executor(None, lambda: self._extract(sq, opts))
+
         try:
-            info = await loop.run_in_executor(
-                None, lambda: self._extract(search_query, opts)
-            )
+            info = await do_extract(search_query)
         except Exception as e:
             logger.error(f"yt-dlp error: {e}")
-            raise ValueError(f"Could not fetch audio. Try a different search term.")
+            info = None
 
-        if not info:
-            raise ValueError("No results found for that query.")
+        def extract_tracks(inf):
+            if not inf: return []
+            entries = inf.get("entries") or [inf]
+            if "ytsearch" in search_query or "scsearch" in search_query:
+                entries = entries[:1]
+            trks = []
+            for entry in entries:
+                if not entry: continue
+                # yt-dlp puts stream url in 'url'. 'webpage_url' is the video link.
+                # If 'url' is missing, it means extraction failed (e.g. YouTube blocked IP).
+                url = entry.get("url")
+                if not url: continue
+                
+                trks.append(Track(
+                    title=entry.get("title", "Unknown"),
+                    url=url,
+                    webpage=entry.get("webpage_url", query),
+                    duration=int(entry.get("duration") or 0),
+                    thumbnail=entry.get("thumbnail", ""),
+                    requester_id=req_id,
+                    requester_name=req_name,
+                    chat_id=chat_id,
+                    source="youtube" if "soundcloud" not in url else "soundcloud",
+                ))
+            return trks
 
-        entries = info.get("entries") or [info]
-        # For search results show first result only; for playlists return all
-        if "ytsearch" in search_query:
-            entries = entries[:1]
+        tracks = extract_tracks(info)
 
-        tracks = []
-        for entry in entries:
-            if not entry:
-                continue
-            url = entry.get("url") or entry.get("webpage_url")
-            if not url:
-                continue
-            tracks.append(Track(
-                title=entry.get("title", "Unknown"),
-                url=url,
-                webpage=entry.get("webpage_url", query),
-                duration=int(entry.get("duration") or 0),
-                thumbnail=entry.get("thumbnail", ""),
-                requester_id=req_id,
-                requester_name=req_name,
-                chat_id=chat_id,
-                source="youtube",
-            ))
+        # ── AUTO FALLBACK TO SOUNDCLOUD ──
+        # If YouTube blocks the stream extraction, we silently fallback to SoundCloud
+        # using the title of the video we wanted.
         if not tracks:
-            raise ValueError("Couldn't extract a streamable URL.")
+            logger.warning(f"YouTube extraction failed for {search_query}. Falling back to SoundCloud...")
+            
+            # If the original query was a direct YouTube link, try to get its title
+            if _YT_REGEX.match(query) and info and info.get("title"):
+                song_title_fallback = info.get("title")
+                
+            if song_title_fallback and song_title_fallback != "Unknown":
+                sc_query = f"scsearch1:{song_title_fallback}"
+                try:
+                    sc_info = await do_extract(sc_query)
+                    tracks = extract_tracks(sc_info)
+                except Exception as e:
+                    logger.error(f"SoundCloud fallback error: {e}")
+            
+        if not tracks:
+            raise ValueError("Couldn't extract a streamable URL. Try a different search term.")
         return tracks
 
     async def _resolve_spotify(
