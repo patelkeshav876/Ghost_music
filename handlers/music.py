@@ -102,7 +102,15 @@ def register(app):
 
             try:
                 from pytgcalls.types import MediaStream
-                stream = MediaStream(first.url)
+                from pytgcalls.types.input_stream.audio_parameters import AudioParameters
+                # IMPORTANT: video_flags=IGNORE required for audio-only streaming.
+                # Without this flag PyTgCalls silently fails to produce any sound.
+                stream = MediaStream(
+                    first.url,
+                    audio_parameters=AudioParameters(bitrate=48000, channels=2),
+                    audio_flags=MediaStream.REQUIRED,
+                    video_flags=MediaStream.IGNORE,
+                )
                 await eng.calls.play(msg.chat.id, stream)
                 try:
                     await eng.calls.change_volume(msg.chat.id, st.volume)

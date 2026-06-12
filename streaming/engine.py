@@ -12,6 +12,7 @@ from typing import Optional
 
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.types import MediaStream
+from pytgcalls.types.input_stream.audio_parameters import AudioParameters
 from pyrogram import Client
 from pyrogram.types import Message
 
@@ -142,7 +143,14 @@ class StreamEngine:
 
     async def _start_stream(self, chat_id: int, track: Track):
         """Tell PyTgCalls to start/switch to a track."""
-        stream = MediaStream(track.url)
+        # IMPORTANT: video_flags=IGNORE for audio-only streams.
+        # Without this, PyTgCalls tries video streaming and silently produces no sound.
+        stream = MediaStream(
+            track.url,
+            audio_parameters=AudioParameters(bitrate=48000, channels=2),
+            audio_flags=MediaStream.REQUIRED,
+            video_flags=MediaStream.IGNORE,
+        )
         st = self.state(chat_id)
         try:
             await self.calls.play(chat_id, stream)
