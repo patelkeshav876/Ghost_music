@@ -2,6 +2,7 @@
 streaming/engine.py
 Core streaming engine.
 Manages per-chat queues, playback state, and PyTgCalls interactions.
+Uses pytgcalls v1.1.6 API.
 """
 
 import asyncio
@@ -10,17 +11,19 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from pytgcalls import PyTgCalls, filters
-from pytgcalls.types import MediaStream
+from pytgcalls import PyTgCalls
+from pytgcalls.types.input_stream import AudioPiped
 from pytgcalls.types.input_stream.audio_parameters import AudioParameters
 from pyrogram import Client
-from pyrogram.types import Message
 
 from config.settings import cfg
 from database.mongo import Database
 from utils.helpers import format_duration
 
 logger = logging.getLogger("streaming.engine")
+
+# Standard high-quality stereo audio parameters
+_AUDIO_PARAMS = AudioParameters(bitrate=48000, channels=2)
 
 
 class LoopMode(Enum):
@@ -63,16 +66,9 @@ class ChatState:
     idle_task:      Optional[asyncio.Task] = None
 
 
-_QUALITY_MAP = {
-    "high":   None,
-    "medium": None,
-    "low":    None,
-}
-
-
 class StreamEngine:
     """
-    Owns all ChatState objects and drives PyTgCalls.
+    Owns all ChatState objects and drives PyTgCalls v1.1.6.
     Thread-safe: uses asyncio.Lock per chat.
     """
 
@@ -83,7 +79,8 @@ class StreamEngine:
         self._states: dict[int, ChatState] = {}
         self._locks:  dict[int, asyncio.Lock] = {}
 
-        @self.calls.on_update(filters.stream_end)
+        # v1.x uses the @on_stream_end decorator
+        @self.calls.on_stream_end()
         async def stream_end_handler(client, update):
             await self._on_stream_end(client, update)
 
@@ -142,25 +139,27 @@ class StreamEngine:
         return track
 
     async def _start_stream(self, chat_id: int, track: Track):
-        """Tell PyTgCalls to start/switch to a track."""
-        # IMPORTANT: video_flags=IGNORE for audio-only streams.
-        # Without this, PyTgCalls tries video streaming and silently produces no sound.
-        stream = MediaStream(
-            track.url,
-            audio_parameters=AudioParameters(bitrate=48000, channels=2),
-            audio_flags=MediaStream.REQUIRED,
-            video_flags=MediaStream.IGNORE,
-        )
+        """Tell PyTgCalls v1.x to start/switch to a track."""
+        # AudioPiped streams any URL/file through ffmpeg — the correct v1.x way
+        stream = AudioPiped(track.url, audio_parameters=_AUDIO_PARAMS)
         st = self.state(chat_id)
         try:
-            await self.calls.play(chat_id, stream)
+            # Check if already in a call → use change_stream, else join fresh
+            active_chats = [c.chat_id for c in self.calls.active_calls]
+            if chat_id in active_chats:
+                await self.calls.change_stream(chat_id, stream)
+            else:
+                await self.calls.join_group_call(chat_id, stream)
+
             logger.info(f"[{chat_id}] Streaming: {track.title}")
+
             try:
-                await self.calls.change_volume(chat_id, st.volume)
-            except:
+                await self.calls.change_volume_call(chat_id, st.volume)
+            except Exception:
                 pass
         except Exception as e:
             logger.error(f"[{chat_id}] Stream start error: {e}")
+            # Try to play next if this one fails
             await self.play_next(chat_id)
 
     async def skip(self, chat_id: int) -> Optional[Track]:
@@ -181,17 +180,25 @@ class StreamEngine:
         st = self.state(chat_id)
         if not st.is_playing or st.is_paused:
             return False
-        await self.calls.pause(chat_id)
-        st.is_paused = True
-        return True
+        try:
+            await self.calls.pause_stream(chat_id)
+            st.is_paused = True
+            return True
+        except Exception as e:
+            logger.error(f"Pause error: {e}")
+            return False
 
     async def resume(self, chat_id: int) -> bool:
         st = self.state(chat_id)
         if not st.is_paused:
             return False
-        await self.calls.resume(chat_id)
-        st.is_paused = False
-        return True
+        try:
+            await self.calls.resume_stream(chat_id)
+            st.is_paused = False
+            return True
+        except Exception as e:
+            logger.error(f"Resume error: {e}")
+            return False
 
     async def stop(self, chat_id: int):
         """Stop playback and clear queue."""
@@ -202,10 +209,9 @@ class StreamEngine:
             st.is_playing = False
             st.is_paused  = False
         try:
-            await self.calls.leave(chat_id)
-        except:
+            await self.calls.leave_group_call(chat_id)
+        except Exception:
             pass
-        pass
         await self._cancel_idle_task(chat_id)
 
     async def stop_all(self):
@@ -221,7 +227,10 @@ class StreamEngine:
         st = self.state(chat_id)
         st.volume = volume
         if st.is_playing:
-            await self.calls.change_volume_call(chat_id, volume)
+            try:
+                await self.calls.change_volume_call(chat_id, volume)
+            except Exception:
+                pass
         return True
 
     async def shuffle_queue(self, chat_id: int) -> int:
@@ -275,7 +284,7 @@ class StreamEngine:
             st2 = self.state(chat_id)
             if not st2.is_playing:
                 try:
-                    await self.calls.leave(chat_id)
+                    await self.calls.leave_group_call(chat_id)
                     await self.bot.send_message(
                         chat_id, "👻 Left the voice chat (idle timeout)."
                     )

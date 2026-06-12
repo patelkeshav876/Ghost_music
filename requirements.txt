@@ -4,7 +4,7 @@
 
 pyrogram==2.0.106
 TgCrypto==1.2.5
-pytgcalls
+pytgcalls==1.1.6
 yt-dlp
 youtube-search-python
 motor
