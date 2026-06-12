@@ -455,8 +455,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;height:var(--nav);
 // ═══════════════════════════════════════════════
 //  CONFIG
 // ═══════════════════════════════════════════════
-let API_URL    = localStorage.getItem('gm_api_url') || '';
-let API_SECRET = localStorage.getItem('gm_api_secret') || '';
+let API_URL    = localStorage.getItem('gm_api_url') || 'https://ghost-music.onrender.com';
+let API_SECRET = localStorage.getItem('gm_api_secret') || 'Kesh@v2004';
 
 document.addEventListener('DOMContentLoaded', () => {
   const urlEl = document.getElementById('api-url');
