@@ -27,6 +27,9 @@ _YDL_BASE = {
     "force_generic_extractor": False,
     "ignoreerrors":     True,
     "geo_bypass":       True,
+    # Bypass YouTube IP Blocks on Render/Cloud servers
+    "extractor_args":   {"youtube": {"client": ["android", "ios"]}},
+    "source_address":   "0.0.0.0", # Force IPv4
 }
 
 _QUALITY_OPTS = {
