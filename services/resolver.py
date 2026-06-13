@@ -27,9 +27,17 @@ _YDL_BASE = {
     "force_generic_extractor": False,
     "ignoreerrors":     True,
     "geo_bypass":       True,
-    # Bypass YouTube IP Blocks on Render/Cloud servers
-    "extractor_args":   {"youtube": {"client": ["android", "ios"]}},
+    # Use tv_embedded + mweb clients — these still work on cloud IPs without cookies
+    "extractor_args":   {"youtube": {"player_client": ["tv_embedded", "mweb"]}},
     "source_address":   "0.0.0.0", # Force IPv4
+    # Spoof a real browser user-agent to reduce bot detection
+    "http_headers": {
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 11; SM-G991B) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Mobile Safari/537.36"
+        )
+    },
 }
 
 _QUALITY_OPTS = {
@@ -114,7 +122,11 @@ class Resolver:
                 raise e
             except Exception as e:
                 logger.error(f"youtube-search-python error: {e}")
-                search_query = f"ytsearch5:{query}" # Fallback
+                # Keep search_query as-is but let song_title_fallback = query
+                # so the SoundCloud fallback below can resolve it instead of
+                # hitting YouTube again with ytsearch5: (which also gets blocked)
+                song_title_fallback = query
+                search_query = f"ytsearch1:{query}"  # Try anyway, may work with new clients
 
         opts = {
             **_YDL_BASE,
