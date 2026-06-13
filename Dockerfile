@@ -18,12 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps — order matters to avoid resolver conflicts
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir pyrogram==2.0.106 TgCrypto==1.2.5
-RUN pip install --no-cache-dir ntgcalls==1.1.3
-RUN pip install --no-cache-dir py-tgcalls==1.1.6
-RUN pip install --no-cache-dir yt-dlp youtube-search-python motor pymongo aiohttp python-dotenv spotipy Pillow
+# Copy requirements first to leverage Docker build cache
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 
 # Copy source
 COPY . .
