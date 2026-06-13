@@ -65,6 +65,22 @@ class Resolver:
     def __init__(self):
         self._lock = asyncio.Lock()
         self._spotify = None
+        self._cookie_file = None
+        
+        # Write cookies from environment variable to a file if provided
+        if cfg.YOUTUBE_COOKIES:
+            try:
+                import tempfile
+                # Create a secure temporary file for cookies
+                fd, path = tempfile.mkstemp(suffix="_cookies.txt", prefix="ghostmusic_")
+                import os
+                with os.fdopen(fd, "w") as f:
+                    f.write(cfg.YOUTUBE_COOKIES)
+                self._cookie_file = path
+                logger.info(f"Loaded YouTube cookies into {self._cookie_file}")
+            except Exception as e:
+                logger.error(f"Failed to write YOUTUBE_COOKIES to file: {e}")
+
         if cfg.SPOTIFY_CLIENT_ID and cfg.SPOTIFY_SECRET:
             try:
                 import spotipy
@@ -78,6 +94,7 @@ class Resolver:
                 logger.info("Spotify integration enabled.")
             except ImportError:
                 logger.warning("spotipy not installed — Spotify links won't work.")
+
 
     # ─────────────────────────────────────────────────────────────────────────
     async def resolve(
@@ -132,6 +149,9 @@ class Resolver:
             **_YDL_BASE,
             "format": _QUALITY_OPTS.get(cfg.STREAM_QUALITY, _QUALITY_OPTS["high"]),
         }
+        if self._cookie_file:
+            opts["cookiefile"] = self._cookie_file
+
 
         loop = asyncio.get_event_loop()
         

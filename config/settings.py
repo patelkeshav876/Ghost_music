@@ -56,6 +56,8 @@ class Settings:
     SPOTIFY_SECRET:     str    = field(default_factory=lambda: _optional("SPOTIFY_SECRET"))
     GENIUS_TOKEN:       str    = field(default_factory=lambda: _optional("GENIUS_TOKEN"))   # lyrics
     LASTFM_KEY:         str    = field(default_factory=lambda: _optional("LASTFM_KEY"))
+    YOUTUBE_COOKIES:    str    = field(default_factory=lambda: _optional("YOUTUBE_COOKIES"))
+
 
     # ── Bot behaviour ─────────────────────────────────────────────────────────
     MAX_QUEUE_SIZE:     int    = field(default_factory=lambda: _int("MAX_QUEUE_SIZE", 50))
