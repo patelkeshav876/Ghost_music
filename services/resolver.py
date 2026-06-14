@@ -27,18 +27,17 @@ _YDL_BASE = {
     "force_generic_extractor": False,
     "ignoreerrors":     True,
     "geo_bypass":       True,
-    # Use tv_embedded + mweb clients — these still work on cloud IPs without cookies
-    "extractor_args":   {"youtube": {"player_client": ["tv_embedded", "mweb"]}},
     "source_address":   "0.0.0.0", # Force IPv4
     # Spoof a real browser user-agent to reduce bot detection
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 11; SM-G991B) "
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Mobile Safari/537.36"
+            "Chrome/120.0.0.0 Safari/537.36"
         )
     },
 }
+
 
 _QUALITY_OPTS = {
     "high":   "bestaudio",
@@ -151,6 +150,10 @@ class Resolver:
         }
         if self._cookie_file:
             opts["cookiefile"] = self._cookie_file
+        else:
+            # Fallback when no cookies: use clients that sometimes work without login
+            opts["extractor_args"] = {"youtube": {"player_client": ["tv_embedded,mweb"]}}
+
 
 
         loop = asyncio.get_event_loop()
