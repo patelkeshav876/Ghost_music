@@ -140,6 +140,18 @@ class StreamEngine:
 
     async def _start_stream(self, chat_id: int, track: Track):
         """Tell PyTgCalls v1.x to start/switch to a track."""
+        # If enqueued from playlist, it has a webpage URL, so resolve it dynamically to a streamable URL first
+        if track.source == "playlist" or (track.url and ("youtube.com" in track.url or "youtu.be" in track.url) and "manifest" not in track.url and "videoplayback" not in track.url):
+            try:
+                from services.resolver import resolver
+                resolved_tracks = await resolver.resolve(track.webpage, track.requester_id, track.requester_name, chat_id)
+                if resolved_tracks:
+                    track.url = resolved_tracks[0].url
+                    track.thumbnail = resolved_tracks[0].thumbnail
+                    track.duration = resolved_tracks[0].duration
+            except Exception as e:
+                logger.error(f"[{chat_id}] Dynamic URL resolution failed for {track.title}: {e}")
+
         # AudioPiped streams any URL/file through ffmpeg — the correct v1.x way
         stream = AudioPiped(track.url, audio_parameters=_AUDIO_PARAMS)
         st = self.state(chat_id)
@@ -161,6 +173,7 @@ class StreamEngine:
             logger.error(f"[{chat_id}] Stream start error: {e}")
             # Try to play next if this one fails
             await self.play_next(chat_id)
+
 
     async def skip(self, chat_id: int) -> Optional[Track]:
         """Skip current track, play next."""
@@ -307,19 +320,57 @@ class StreamEngine:
         from utils.ui import build_now_playing
         st = self.state(chat_id)
         text, buttons = build_now_playing(track, st)
+        
+        # Try to generate a custom PIL Now Playing card image
+        from utils.thumbnail import generate_now_playing_card
+        photo_bytes = await generate_now_playing_card(
+            title=track.title,
+            artist=track.source.capitalize(),
+            duration=track.duration_str,
+            requester=track.requester_name,
+            thumb_url=track.thumbnail,
+            volume=st.volume
+        )
+        
+        # Delete old message to avoid cluttering if we are changing to a new photo
         if st.now_playing_msg:
             try:
-                await self.bot.edit_message_text(
-                    chat_id, st.now_playing_msg, text,
-                    reply_markup=buttons, disable_web_page_preview=True
-                )
-                return
+                await self.bot.delete_messages(chat_id, st.now_playing_msg)
             except Exception:
                 pass
-        msg = await self.bot.send_message(
-            chat_id, text, reply_markup=buttons, disable_web_page_preview=True
-        )
-        st.now_playing_msg = msg.id
+            st.now_playing_msg = None
+            
+        try:
+            if photo_bytes:
+                import io
+                bio = io.BytesIO(photo_bytes)
+                bio.name = "nowplaying.png"
+                msg = await self.bot.send_photo(
+                    chat_id,
+                    photo=bio,
+                    caption=text,
+                    reply_markup=buttons
+                )
+            elif track.thumbnail:
+                msg = await self.bot.send_photo(
+                    chat_id,
+                    photo=track.thumbnail,
+                    caption=text,
+                    reply_markup=buttons
+                )
+            else:
+                msg = await self.bot.send_message(
+                    chat_id, text, reply_markup=buttons, disable_web_page_preview=True
+                )
+            st.now_playing_msg = msg.id
+        except Exception as e:
+            logger.error(f"Failed to send now playing card: {e}")
+            # Fallback to text message
+            msg = await self.bot.send_message(
+                chat_id, text, reply_markup=buttons, disable_web_page_preview=True
+            )
+            st.now_playing_msg = msg.id
+
 
     async def _send_queue_empty(self, chat_id: int):
         await self.bot.send_message(chat_id, "✅ Queue finished. Add more songs with /play!")
