@@ -57,6 +57,7 @@ class Settings:
     GENIUS_TOKEN:       str    = field(default_factory=lambda: _optional("GENIUS_TOKEN"))   # lyrics
     LASTFM_KEY:         str    = field(default_factory=lambda: _optional("LASTFM_KEY"))
     YOUTUBE_COOKIES:    str    = field(default_factory=lambda: _optional("YOUTUBE_COOKIES"))
+    YOUTUBE_PROXY:      str    = field(default_factory=lambda: _optional("YOUTUBE_PROXY"))
 
 
     # ── Bot behaviour ─────────────────────────────────────────────────────────

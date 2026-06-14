@@ -154,6 +154,11 @@ class Resolver:
             # Fallback when no cookies: use clients that sometimes work without login
             opts["extractor_args"] = {"youtube": {"player_client": ["tv_embedded,mweb"]}}
 
+        # Add proxy configuration if defined
+        if cfg.YOUTUBE_PROXY:
+            opts["proxy"] = cfg.YOUTUBE_PROXY
+
+
 
 
         loop = asyncio.get_event_loop()
