@@ -66,19 +66,25 @@ class Resolver:
         self._spotify = None
         self._cookie_file = None
         
-        # Write cookies from environment variable to a file if provided
+        # Support multiple cookies separated by ===NEXT_ACCOUNT===
+        self._cookie_files = []
+        self._active_cookie_idx = 0
+        
         if cfg.YOUTUBE_COOKIES:
             try:
                 import tempfile
-                # Create a secure temporary file for cookies
-                fd, path = tempfile.mkstemp(suffix="_cookies.txt", prefix="ghostmusic_")
                 import os
-                with os.fdopen(fd, "w") as f:
-                    f.write(cfg.YOUTUBE_COOKIES)
-                self._cookie_file = path
-                logger.info(f"Loaded YouTube cookies into {self._cookie_file}")
+                # Split raw cookie content by delimiter
+                accounts_cookies = [c.strip() for c in cfg.YOUTUBE_COOKIES.split("===NEXT_ACCOUNT===") if c.strip()]
+                for i, cookie_content in enumerate(accounts_cookies):
+                    fd, path = tempfile.mkstemp(suffix=f"_cookies_{i}.txt", prefix="ghostmusic_")
+                    with os.fdopen(fd, "w") as f:
+                        f.write(cookie_content)
+                    self._cookie_files.append(path)
+                logger.info(f"Loaded {len(self._cookie_files)} YouTube cookie account(s).")
             except Exception as e:
-                logger.error(f"Failed to write YOUTUBE_COOKIES to file: {e}")
+                logger.error(f"Failed to write YOUTUBE_COOKIES to files: {e}")
+
 
         if cfg.SPOTIFY_CLIENT_ID and cfg.SPOTIFY_SECRET:
             try:
@@ -175,8 +181,12 @@ class Resolver:
             **_YDL_BASE,
             "format": _QUALITY_OPTS.get(cfg.STREAM_QUALITY, _QUALITY_OPTS["high"]),
         }
-        if self._cookie_file:
-            opts["cookiefile"] = self._cookie_file
+        if self._cookie_files:
+            # Inject currently active cookie
+            active_idx = self._active_cookie_idx % len(self._cookie_files)
+            opts["cookiefile"] = self._cookie_files[active_idx]
+            logger.info(f"Using YouTube cookie file {active_idx + 1} of {len(self._cookie_files)}")
+
         elif cfg.YOUTUBE_CLIENT_ID and cfg.YOUTUBE_CLIENT_SECRET:
             # Enable official YouTube OAuth2 authentication via yt-dlp native options
             opts["username"] = "oauth2"
@@ -203,14 +213,43 @@ class Resolver:
 
         loop = asyncio.get_event_loop()
         
-        async def do_extract(sq):
-            return await loop.run_in_executor(None, lambda: self._extract(sq, opts))
+        async def do_extract(sq, current_opts):
+            return await loop.run_in_executor(None, lambda: self._extract(sq, current_opts))
 
-        try:
-            info = await do_extract(search_query)
-        except Exception as e:
-            logger.error(f"yt-dlp error: {e}")
-            info = None
+        max_attempts = max(1, len(self._cookie_files))
+        attempt = 0
+        info = None
+
+        while attempt < max_attempts:
+            # Re-build opts dynamically for each attempt to pick up rotated cookie file
+            current_opts = {**opts}
+            if self._cookie_files:
+                active_idx = (self._active_cookie_idx + attempt) % len(self._cookie_files)
+                current_opts["cookiefile"] = self._cookie_files[active_idx]
+                logger.info(f"Extraction attempt {attempt + 1}: Using YouTube cookie file {active_idx + 1} of {len(self._cookie_files)}")
+            
+            try:
+                info = await do_extract(search_query, current_opts)
+                if info and (info.get("url") or (info.get("entries") and info.get("entries")[0] and info.get("entries")[0].get("url"))):
+                    # Successfully extracted with working stream URL
+                    if attempt > 0:
+                        # Update the master active index so subsequent runs start here
+                        self._active_cookie_idx = (self._active_cookie_idx + attempt) % len(self._cookie_files)
+                        logger.info(f"Rotated active cookie index to {self._active_cookie_idx + 1}")
+                    break
+            except Exception as e:
+                logger.error(f"Extraction attempt {attempt + 1} failed: {e}")
+                
+            # If we didn't get valid stream urls, treat as failed and rotate
+            if not info or not (info.get("url") or (info.get("entries") and info.get("entries")[0] and info.get("entries")[0].get("url"))):
+                attempt += 1
+                if attempt < max_attempts:
+                    logger.warning("Extraction failed or blocked. Rotating to next cookie account...")
+                else:
+                    logger.error("All cookie accounts failed extraction.")
+            else:
+                break
+
 
         def extract_tracks(inf):
             if not inf: return []
@@ -253,14 +292,88 @@ class Resolver:
             if song_title_fallback and song_title_fallback != "Unknown":
                 sc_query = f"scsearch1:{song_title_fallback}"
                 try:
-                    sc_info = await do_extract(sc_query)
+                    sc_info = await do_extract(sc_query, opts)
                     tracks = extract_tracks(sc_info)
                 except Exception as e:
                     logger.error(f"SoundCloud fallback error: {e}")
+
+        # ── AUTO FALLBACK TO PIPED API (YouTube Alternative Proxy) ──
+        # If both yt-dlp extraction AND SoundCloud fallback failed,
+        # try to resolve via a public Piped API instance. This does not require cookies/local IP.
+        if not tracks:
+            logger.warning("YouTube & SoundCloud extraction failed. Attempting Piped API fallback...")
+            try:
+                import aiohttp
+                # Get video ID from the query
+                video_id = None
+                if _YT_REGEX.match(query):
+                    # Extract video ID from URL
+                    import urllib.parse as urlparse
+                    parsed = urlparse.urlparse(query)
+                    if parsed.hostname == 'youtu.be':
+                        video_id = parsed.path[1:]
+                    elif parsed.hostname in ('www.youtube.com', 'youtube.com'):
+                        if parsed.path == '/watch':
+                            video_id = urlparse.parse_qs(parsed.query).get('v', [None])[0]
+                        elif parsed.path.startswith('/embed/'):
+                            video_id = parsed.path.split('/')[2]
+                        elif parsed.path.startswith('/v/'):
+                            video_id = parsed.path.split('/')[2]
+                
+                # If it was a search query, first use the video resolved by Google API or VideosSearch
+                if not video_id and _YT_REGEX.match(search_query):
+                    import urllib.parse as urlparse
+                    parsed = urlparse.urlparse(search_query)
+                    if parsed.hostname == 'youtu.be':
+                        video_id = parsed.path[1:]
+                    else:
+                        video_id = urlparse.parse_qs(parsed.query).get('v', [None])[0]
+
+                if video_id:
+                    # Query Piped APIs (we try a couple of popular public instances)
+                    piped_instances = [
+                        "https://pipedapi.kavin.rocks",
+                        "https://api.piped.yt",
+                        "https://piped-api.garudalinux.org"
+                    ]
+                    for instance in piped_instances:
+                        try:
+                            api_url = f"{instance}/streams/{video_id}"
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(api_url, timeout=6) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        audio_streams = [
+                                            s for s in data.get("audioStreams", [])
+                                            if s.get("mimeType", "").startswith("audio/")
+                                        ]
+                                        if audio_streams:
+                                            # Pick the highest quality stream
+                                            best_stream = max(audio_streams, key=lambda s: s.get("bitrate", 0))
+                                            tracks.append(Track(
+                                                title=data.get("title", song_title_fallback or "Unknown"),
+                                                url=best_stream["url"],
+                                                webpage=query,
+                                                duration=int(data.get("duration", 0)),
+                                                thumbnail=data.get("thumbnailUrl", ""),
+                                                requester_id=req_id,
+                                                requester_name=req_name,
+                                                chat_id=chat_id,
+                                                source="youtube",
+                                            ))
+                                            logger.info(f"Successfully resolved video {video_id} via Piped API ({instance})")
+                                            break
+                        except Exception as e:
+                            logger.error(f"Piped instance {instance} failed: {e}")
+                        if tracks:
+                            break
+            except Exception as e:
+                logger.error(f"Piped API fallback failed: {e}")
             
         if not tracks:
             raise ValueError("Couldn't extract a streamable URL. Try a different search term.")
         return tracks
+
 
     async def _resolve_spotify(
         self, url: str, req_id: int, req_name: str, chat_id: int
