@@ -128,13 +128,20 @@ class GhostMusicBot:
 
         try:
             await self.stream.stop_all()
-            await self.calls.stop()
+            if self.calls:
+                try:
+                    # check if stop exists in this version of pytgcalls
+                    if hasattr(self.calls, "stop"):
+                        await self.calls.stop()
+                except Exception:
+                    pass
             await self.assistant.stop()
             await self.bot.stop()
             await self.db.close()
             await self.stats_api.stop()
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
+
 
 
     async def idle(self):
