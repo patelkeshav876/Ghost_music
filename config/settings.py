@@ -58,6 +58,8 @@ class Settings:
     LASTFM_KEY:         str    = field(default_factory=lambda: _optional("LASTFM_KEY"))
     YOUTUBE_COOKIES:    str    = field(default_factory=lambda: _optional("YOUTUBE_COOKIES"))
     YOUTUBE_PROXY:      str    = field(default_factory=lambda: _optional("YOUTUBE_PROXY"))
+    YOUTUBE_API_KEY:    str    = field(default_factory=lambda: _optional("YOUTUBE_API_KEY"))
+
 
 
     # ── Bot behaviour ─────────────────────────────────────────────────────────

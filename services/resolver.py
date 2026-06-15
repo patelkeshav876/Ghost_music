@@ -125,24 +125,51 @@ class Resolver:
         song_title_fallback = query if not _YT_REGEX.match(query) else "Unknown"
 
         if not _YT_REGEX.match(query):
-            try:
-                from youtubesearchpython.__future__ import VideosSearch
-                videosSearch = VideosSearch(query, limit=1)
-                videosResult = await videosSearch.next()
-                if videosResult and videosResult.get('result'):
-                    search_query = videosResult['result'][0]['link']
-                    song_title_fallback = videosResult['result'][0]['title']
-                else:
-                    raise ValueError("No results found for that query.")
-            except ValueError as e:
-                raise e
-            except Exception as e:
-                logger.error(f"youtube-search-python error: {e}")
-                # Keep search_query as-is but let song_title_fallback = query
-                # so the SoundCloud fallback below can resolve it instead of
-                # hitting YouTube again with ytsearch5: (which also gets blocked)
-                song_title_fallback = query
-                search_query = f"ytsearch1:{query}"  # Try anyway, may work with new clients
+            resolved_via_api = False
+            if cfg.YOUTUBE_API_KEY:
+                try:
+                    import aiohttp
+                    url = "https://www.googleapis.com/youtube/v3/search"
+                    params = {
+                        "part": "snippet",
+                        "q": query,
+                        "type": "video",
+                        "maxResults": 1,
+                        "key": cfg.YOUTUBE_API_KEY
+                    }
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, params=params) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                if data.get("items"):
+                                    video_id = data["items"][0]["id"]["videoId"]
+                                    search_query = f"https://www.youtube.com/watch?v={video_id}"
+                                    song_title_fallback = data["items"][0]["snippet"]["title"]
+                                    resolved_via_api = True
+                                    logger.info(f"Resolved query '{query}' via YouTube API to '{song_title_fallback}'")
+                except Exception as e:
+                    logger.error(f"YouTube Data API search failed: {e}")
+
+            if not resolved_via_api:
+                try:
+                    from youtubesearchpython.__future__ import VideosSearch
+                    videosSearch = VideosSearch(query, limit=1)
+                    videosResult = await videosSearch.next()
+                    if videosResult and videosResult.get('result'):
+                        search_query = videosResult['result'][0]['link']
+                        song_title_fallback = videosResult['result'][0]['title']
+                    else:
+                        raise ValueError("No results found for that query.")
+                except ValueError as e:
+                    raise e
+                except Exception as e:
+                    logger.error(f"youtube-search-python error: {e}")
+                    # Keep search_query as-is but let song_title_fallback = query
+                    # so the SoundCloud fallback below can resolve it instead of
+                    # hitting YouTube again with ytsearch5: (which also gets blocked)
+                    song_title_fallback = query
+                    search_query = f"ytsearch1:{query}"  # Try anyway, may work with new clients
+
 
         opts = {
             **_YDL_BASE,
@@ -282,6 +309,38 @@ class Resolver:
         """
         Used by inline mode: returns lightweight dicts (no full extraction).
         """
+        if cfg.YOUTUBE_API_KEY:
+            try:
+                import aiohttp
+                url = "https://www.googleapis.com/youtube/v3/search"
+                params = {
+                    "part": "snippet",
+                    "q": query,
+                    "type": "video",
+                    "maxResults": 5,
+                    "key": cfg.YOUTUBE_API_KEY
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            results = []
+                            for item in data.get("items", []):
+                                video_id = item["id"].get("videoId")
+                                if not video_id:
+                                    continue
+                                snippet = item.get("snippet", {})
+                                results.append({
+                                    "id":       video_id,
+                                    "title":    snippet.get("title", "Unknown"),
+                                    "url":      f"https://www.youtube.com/watch?v={video_id}",
+                                    "duration": 0, # API search doesn't return duration directly without video call
+                                    "thumbnail": snippet.get("thumbnails", {}).get("default", {}).get("url", ""),
+                                })
+                            return results
+            except Exception as e:
+                logger.error(f"YouTube Data API inline search failed: {e}")
+
         try:
             from youtubesearchpython.__future__ import VideosSearch
             videosSearch = VideosSearch(query, limit=5)
@@ -315,6 +374,7 @@ class Resolver:
         except Exception as e:
             logger.error(f"youtube-search-python inline error: {e}")
             return []
+
 
 
 # Singleton
