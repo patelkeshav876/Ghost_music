@@ -90,6 +90,9 @@ class GhostMusicBot:
         await self.db.connect()
         logger.info("MongoDB connected.")
 
+        # Restore yt-dlp OAuth/cookie cache from MongoDB
+        await self._restore_yt_dlp_cache()
+
         # Start Pyrogram clients
         await self.bot.start()
         await self.assistant.start()
@@ -120,6 +123,9 @@ class GhostMusicBot:
         self._running = False
         self._idle_event.set()
 
+        # Save yt-dlp OAuth/cookie cache to MongoDB before stopping
+        await self._backup_yt_dlp_cache()
+
         try:
             await self.stream.stop_all()
             await self.calls.stop()
@@ -130,9 +136,54 @@ class GhostMusicBot:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
+
     async def idle(self):
         """Block until stop() is called."""
         await self._idle_event.wait()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  yt-dlp Cache Backup/Restore Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    async def _restore_yt_dlp_cache(self):
+        try:
+            cache_bytes = await self.db.load_yt_dlp_cache()
+            if not cache_bytes:
+                return
+            
+            import io
+            import tarfile
+            import os
+            
+            # Determine yt-dlp cache directory location
+            cache_dir = os.path.expanduser("~/.cache/yt-dlp")
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            with tarfile.open(fileobj=io.BytesIO(cache_bytes), mode="r:gz") as tar:
+                tar.extractall(path=cache_dir)
+            logger.info(f"Successfully restored yt-dlp cache into {cache_dir}")
+        except Exception as e:
+            logger.error(f"Failed to restore yt-dlp cache: {e}")
+
+    async def _backup_yt_dlp_cache(self):
+        try:
+            import os
+            cache_dir = os.path.expanduser("~/.cache/yt-dlp")
+            if not os.path.exists(cache_dir) or not os.listdir(cache_dir):
+                return
+                
+            import io
+            import tarfile
+            
+            bio = io.BytesIO()
+            with tarfile.open(fileobj=bio, mode="w:gz") as tar:
+                # Add cache directory contents recursively
+                tar.add(cache_dir, arcname=".")
+                
+            await self.db.save_yt_dlp_cache(bio.getvalue())
+            logger.info("Successfully backed up yt-dlp cache to MongoDB.")
+        except Exception as e:
+            logger.error(f"Failed to backup yt-dlp cache: {e}")
+
 
     # ─────────────────────────────────────────────────────────────────────────
     def _load_handlers(self):

@@ -177,9 +177,22 @@ class Resolver:
         }
         if self._cookie_file:
             opts["cookiefile"] = self._cookie_file
+        elif cfg.YOUTUBE_CLIENT_ID and cfg.YOUTUBE_CLIENT_SECRET:
+            # Enable official YouTube OAuth2 authentication via yt-dlp native options
+            opts["username"] = "oauth2"
+            opts["password"] = ""
+            # Inject client credentials dynamically via youtube extractor args
+            opts["extractor_args"] = {
+                "youtube": {
+                    "oauth_client_id": [cfg.YOUTUBE_CLIENT_ID],
+                    "oauth_client_secret": [cfg.YOUTUBE_CLIENT_SECRET]
+                }
+            }
+            logger.info("Configured yt-dlp to use YouTube OAuth2 with custom Client credentials")
         else:
-            # Fallback when no cookies: use clients that sometimes work without login
+            # Fallback when no cookies/oauth: use clients that sometimes work without login
             opts["extractor_args"] = {"youtube": {"player_client": ["tv_embedded,mweb"]}}
+
 
         # Add proxy configuration if defined
         if cfg.YOUTUBE_PROXY:

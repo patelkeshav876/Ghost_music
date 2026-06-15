@@ -302,3 +302,26 @@ class Database:
         ]
         result = await self._db.stats.aggregate(pipeline).to_list(1)
         return result[0] if result else {"total_plays": 0, "total_chats": 0}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  yt-dlp OAuth Cache Backup/Restore
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def save_yt_dlp_cache(self, cache_tar_bytes: bytes):
+        if self._mock_mode:
+            self._mock_data["stats"]["yt_dlp_cache"] = cache_tar_bytes
+            return
+        await self._db.stats.update_one(
+            {"chat_id": 999999999}, # Special system doc
+            {"$set": {"yt_dlp_cache": cache_tar_bytes, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True
+        )
+
+    async def load_yt_dlp_cache(self) -> Optional[bytes]:
+        if self._mock_mode:
+            return self._mock_data["stats"].get("yt_dlp_cache")
+        doc = await self._db.stats.find_one({"chat_id": 999999999})
+        if doc:
+            return doc.get("yt_dlp_cache")
+        return None
+
