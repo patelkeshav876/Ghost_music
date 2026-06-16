@@ -119,8 +119,95 @@ class Resolver:
         if _SP_REGEX.match(query):
             return await self._resolve_spotify(query, requester_id, requester_name, chat_id)
 
-        # YouTube URL or plain search
+        # Direct YouTube link → skip JioSaavn and go to YouTube directly
+        if _YT_REGEX.match(query):
+            return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
+
+        # Plain text search → Search JioSaavn first!
+        try:
+            tracks = await self._resolve_jiosaavn(query, requester_id, requester_name, chat_id)
+            if tracks:
+                return tracks
+        except Exception as e:
+            logger.warning(f"JioSaavn resolution failed, falling back to YouTube: {e}")
+
+        # Fallback to YouTube
         return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    async def _resolve_jiosaavn(
+        self, query: str, req_id: int, req_name: str, chat_id: int
+    ) -> list[Track]:
+        import aiohttp
+        # Try a few popular public API instances
+        endpoints = [
+            "https://saavn.dev/api/search/songs",
+            "https://saavn.sumit.co/api/search/songs",
+            "https://jiosaavn-api.vercel.app/api/search/songs"
+        ]
+        
+        for base_url in endpoints:
+            try:
+                logger.info(f"Searching JioSaavn via {base_url} for '{query}'")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(base_url, params={"query": query}, timeout=6) as resp:
+                        if resp.status == 200:
+                            payload = await resp.json()
+                            data = payload.get("data", {})
+                            results = data.get("results", []) if isinstance(data, dict) else data
+                            
+                            if not results:
+                                continue
+                                
+                            song = results[0]
+                            # Find highest quality download URL
+                            download_urls = song.get("downloadUrl", [])
+                            if not download_urls:
+                                continue
+                            
+                            # Sort by quality if possible (e.g. 320kbps > 160kbps > 96kbps)
+                            best_stream = None
+                            for qual in ["320kbps", "160kbps", "96kbps", "48kbps"]:
+                                found = [u for u in download_urls if u.get("quality") == qual]
+                                if found:
+                                    best_stream = found[0]
+                                    break
+                            
+                            if not best_stream:
+                                best_stream = download_urls[-1]
+                                
+                            stream_url = best_stream.get("link") or best_stream.get("url")
+                            if not stream_url:
+                                continue
+                                
+                            # Image resolution fallback
+                            images = song.get("image", [])
+                            thumb = ""
+                            if images:
+                                # Pick highest resolution image
+                                thumb = images[-1].get("link") or images[-1].get("url") or ""
+                                
+                            # Duration
+                            dur = int(song.get("duration") or 0)
+                            
+                            track = Track(
+                                title=song.get("name", "Unknown JioSaavn Song"),
+                                url=stream_url,
+                                webpage=stream_url, # Stream is direct URL
+                                duration=dur,
+                                thumbnail=thumb,
+                                requester_id=req_id,
+                                requester_name=req_name,
+                                chat_id=chat_id,
+                                source="jiosaavn",
+                            )
+                            logger.info(f"Successfully resolved '{query}' via JioSaavn API to '{track.title}'")
+                            return [track]
+            except Exception as e:
+                logger.error(f"JioSaavn API {base_url} failed: {e}")
+                
+        return []
+
 
     # ─────────────────────────────────────────────────────────────────────────
     async def _resolve_youtube(

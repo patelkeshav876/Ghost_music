@@ -8,7 +8,8 @@ from streaming.engine import ChatState, Track, LoopMode
 
 
 _LOOP_ICON = {LoopMode.OFF: "🔁", LoopMode.SONG: "🔂", LoopMode.QUEUE: "🔁✓"}
-_SOURCE_ICON = {"youtube": "▶️", "spotify": "💚", "soundcloud": "☁️", "file": "📎", "playlist": "🎵"}
+_SOURCE_ICON = {"youtube": "▶️", "spotify": "💚", "soundcloud": "☁️", "file": "📎", "playlist": "🎵", "jiosaavn": "🎵"}
+
 
 
 def _esc(text: str) -> str:
