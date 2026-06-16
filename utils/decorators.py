@@ -88,3 +88,64 @@ def voice_chat_required(func):
         # We check this by looking at engine state — already playing = VC is up
         return await func(client, msg, *args, **kwargs)
     return wrapper
+
+
+def authorized_only(func):
+    """Requires user to be a group admin, creator, bot owner, sudo user, or explicitly promoted in the group."""
+    @functools.wraps(func)
+    async def wrapper(client, update, *args, **kwargs):
+        user_id = None
+        chat_id = None
+        is_cb = False
+        
+        if isinstance(update, Message):
+            user_id = update.from_user.id if update.from_user else 0
+            chat_id = update.chat.id
+        elif isinstance(update, CallbackQuery):
+            user_id = update.from_user.id
+            chat_id = update.message.chat.id
+            is_cb = True
+
+        # If it's a private chat (chat_id > 0 for users in Telegram), everyone is authorized
+        if chat_id and chat_id > 0:
+            return await func(client, update, *args, **kwargs)
+
+        if user_id:
+            # Sudo users and owner are always allowed
+            if user_id in cfg.SUDO_USERS or user_id == cfg.OWNER_ID:
+                return await func(client, update, *args, **kwargs)
+
+            # Check if user is Telegram Group Administrator/Creator
+            is_tg_admin = False
+            try:
+                member = await client.get_chat_member(chat_id, user_id)
+                if member.status.value in ("administrator", "creator"):
+                    is_tg_admin = True
+            except Exception:
+                pass
+            
+            if is_tg_admin:
+                return await func(client, update, *args, **kwargs)
+
+            # Check if user is in group's promoted list in MongoDB
+            is_promoted = False
+            try:
+                db = getattr(client, "db", None)
+                if db:
+                    is_promoted = await db.is_user_promoted(chat_id, user_id)
+            except Exception as e:
+                logger.error(f"Error checking user promotion: {e}")
+
+            if is_promoted:
+                return await func(client, update, *args, **kwargs)
+
+            # If not authorized:
+            if is_cb:
+                await update.answer("❌ You are not authorized to control music in this group. Ask a group admin to /promote you.", show_alert=True)
+            else:
+                await update.reply("❌ You are not authorized to control music in this group. Ask a group admin to `/promote` you.", quote=True)
+            return
+
+        return await func(client, update, *args, **kwargs)
+    return wrapper
+

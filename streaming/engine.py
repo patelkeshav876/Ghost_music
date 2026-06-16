@@ -319,7 +319,22 @@ class StreamEngine:
     async def _update_now_playing(self, chat_id: int, track: Track):
         from utils.ui import build_now_playing
         st = self.state(chat_id)
-        text, buttons = build_now_playing(track, st)
+        
+        # Load active ads from MongoDB
+        ad_text, ad_btn_text, ad_btn_url = "", "", ""
+        try:
+            active_ads = await self.db.get_active_ads()
+            if active_ads:
+                import random
+                ad = random.choice(active_ads)
+                ad_text = ad.get("text", "")
+                ad_btn_text = ad.get("button_text", "")
+                ad_btn_url = ad.get("button_url", "")
+        except Exception:
+            pass
+
+        text, buttons = build_now_playing(track, st, ad_text, ad_btn_text, ad_btn_url)
+
         
         # Try to generate a custom PIL Now Playing card image
         from utils.thumbnail import generate_now_playing_card

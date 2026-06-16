@@ -11,7 +11,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, 
 
 from streaming.engine import LoopMode, Track
 from services.resolver import resolver
-from utils.decorators import rate_limit, admin_only, voice_chat_required
+from utils.decorators import rate_limit, admin_only, voice_chat_required, authorized_only
 from utils.ui import build_now_playing, build_queue_text
 from utils.helpers import delete_after
 from config.settings import cfg
@@ -29,6 +29,7 @@ def register(app):
     # ─── /play ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["play", "p"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def play_cmd(client: Client, msg: Message):
         query = " ".join(msg.command[1:]).strip()
 
@@ -123,9 +124,11 @@ def register(app):
                 st.current = None; st.is_playing = False
                 return
 
-            np_text, buttons = build_now_playing(first, st)
-            np_msg = await loading.edit(np_text, reply_markup=buttons, disable_web_page_preview=True)
-            st.now_playing_msg = np_msg.id
+            try:
+                await loading.delete()
+            except Exception:
+                pass
+            await eng._update_now_playing(msg.chat.id, first)
 
             if len(tracks) > 1:
                 await msg.reply(f"📥 Added **{len(tracks)-1}** more tracks to the queue.")
@@ -133,30 +136,58 @@ def register(app):
     # ─── /skip ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["skip", "s"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def skip_cmd(client, msg):
+        st = eng.state(msg.chat.id)
+        if st.now_playing_msg:
+            try:
+                await client.delete_messages(msg.chat.id, st.now_playing_msg)
+            except Exception:
+                pass
+            st.now_playing_msg = None
         next_track = await eng.skip(msg.chat.id)
         if next_track:
-            await msg.reply(f"⏭ Skipped! Now playing: **{next_track.title}**")
+            await eng._update_now_playing(msg.chat.id, next_track)
         else:
             await msg.reply("⏭ Skipped. Queue is now empty.")
 
     # ─── /pause / /resume ─────────────────────────────────────────────────────
     @bot.on_message(filters.command(["pause"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def pause_cmd(client, msg):
         ok = await eng.pause(msg.chat.id)
-        await msg.reply("⏸ Paused." if ok else "Nothing is playing right now.")
+        if ok:
+            st = eng.state(msg.chat.id)
+            if st.current:
+                await eng._update_now_playing(msg.chat.id, st.current)
+        else:
+            await msg.reply("Nothing is playing right now.")
 
     @bot.on_message(filters.command(["resume", "r"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def resume_cmd(client, msg):
         ok = await eng.resume(msg.chat.id)
-        await msg.reply("▶️ Resumed!" if ok else "Nothing is paused.")
+        if ok:
+            st = eng.state(msg.chat.id)
+            if st.current:
+                await eng._update_now_playing(msg.chat.id, st.current)
+        else:
+            await msg.reply("Nothing is paused.")
 
     # ─── /stop ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["stop", "end"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def stop_cmd(client, msg):
+        st = eng.state(msg.chat.id)
+        if st.now_playing_msg:
+            try:
+                await client.delete_messages(msg.chat.id, st.now_playing_msg)
+            except Exception:
+                pass
+            st.now_playing_msg = None
         await eng.stop(msg.chat.id)
         await msg.reply("⏹ Stopped and left the voice chat.")
 
@@ -184,6 +215,7 @@ def register(app):
     # ─── /volume ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["volume", "vol", "v"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def volume_cmd(client, msg):
         if len(msg.command) < 2:
             st = eng.state(msg.chat.id)
@@ -196,10 +228,14 @@ def register(app):
             return
         await eng.set_volume(msg.chat.id, vol)
         await msg.reply(f"🔊 Volume set to **{max(1, min(200, vol))}%**")
+        st = eng.state(msg.chat.id)
+        if st.current:
+            await eng._update_now_playing(msg.chat.id, st.current)
 
     # ─── /loop ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["loop", "repeat"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def loop_cmd(client, msg):
         mode_arg = (msg.command[1].lower() if len(msg.command) > 1 else "")
         cycle = {LoopMode.OFF: LoopMode.SONG, LoopMode.SONG: LoopMode.QUEUE, LoopMode.QUEUE: LoopMode.OFF}
@@ -212,20 +248,27 @@ def register(app):
         emoji = {"off": "🔁", "song": "🔂", "queue": "🔁"}
         label = {LoopMode.OFF: "Off", LoopMode.SONG: "Song", LoopMode.QUEUE: "Queue"}
         await msg.reply(f"{emoji.get(new_mode.value, '🔁')} Loop mode: **{label[new_mode]}**")
+        if st.current:
+            await eng._update_now_playing(msg.chat.id, st.current)
 
     # ─── /shuffle ─────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["shuffle"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def shuffle_cmd(client, msg):
         count = await eng.shuffle_queue(msg.chat.id)
         if count == 0:
             await msg.reply("Queue is empty, nothing to shuffle.")
         else:
             await msg.reply(f"🔀 Queue shuffled! ({count} tracks)")
+            st = eng.state(msg.chat.id)
+            if st.current:
+                await eng._update_now_playing(msg.chat.id, st.current)
 
     # ─── /clearqueue ──────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["clearqueue", "cq", "clear"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
+    @authorized_only
     async def clearq_cmd(client, msg):
         st = eng.state(msg.chat.id)
         n  = len(st.queue)
@@ -322,6 +365,7 @@ def register(app):
     # ─── Inline buttons from now-playing card ─────────────────────────────────
     @bot.on_callback_query(filters.regex(r"^music:"))
     @rate_limit
+    @authorized_only
     async def music_callback(client, cb: CallbackQuery):
         action = cb.data.split(":")[1]
         chat_id = cb.message.chat.id
@@ -349,13 +393,90 @@ def register(app):
         elif action == "queue":
             await cb.answer(build_queue_text(st)[:200], show_alert=True)
 
-        # Refresh now-playing card
+        # Refresh now-playing card by deleting the old message and sending a new one (floating window)
         if st.current:
-            text, buttons = build_now_playing(st.current, st)
             try:
-                await cb.message.edit_text(text, reply_markup=buttons, disable_web_page_preview=True)
+                await eng._update_now_playing(chat_id, st.current)
             except Exception:
                 pass
+
+
+    # ─── /promote ─────────────────────────────────────────────────────────────
+    @bot.on_message(filters.command(["promote"], prefixes=cfg.COMMAND_PREFIX))
+    @rate_limit
+    @admin_only
+    async def promote_cmd(client: Client, msg: Message):
+        if msg.chat.id > 0:
+            await msg.reply("❌ This command can only be used in groups.", quote=True)
+            return
+
+        target_user_id = None
+        target_name = ""
+
+        if msg.reply_to_message:
+            target = msg.reply_to_message.from_user
+            if target:
+                target_user_id = target.id
+                target_name = target.first_name
+        elif len(msg.command) > 1:
+            arg = msg.command[1]
+            if arg.isdigit():
+                target_user_id = int(arg)
+                target_name = f"User {arg}"
+            else:
+                try:
+                    user_info = await client.get_users(arg)
+                    target_user_id = user_info.id
+                    target_name = user_info.first_name
+                except Exception:
+                    await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    return
+        
+        if not target_user_id:
+            await msg.reply("❌ Please reply to a user or provide username/ID to promote.", quote=True)
+            return
+
+        await db.promote_user(msg.chat.id, target_user_id)
+        await msg.reply(f"✅ **{target_name}** has been promoted to music control operator in this group.", quote=True)
+
+    # ─── /demote ──────────────────────────────────────────────────────────────
+    @bot.on_message(filters.command(["demote"], prefixes=cfg.COMMAND_PREFIX))
+    @rate_limit
+    @admin_only
+    async def demote_cmd(client: Client, msg: Message):
+        if msg.chat.id > 0:
+            await msg.reply("❌ This command can only be used in groups.", quote=True)
+            return
+
+        target_user_id = None
+        target_name = ""
+
+        if msg.reply_to_message:
+            target = msg.reply_to_message.from_user
+            if target:
+                target_user_id = target.id
+                target_name = target.first_name
+        elif len(msg.command) > 1:
+            arg = msg.command[1]
+            if arg.isdigit():
+                target_user_id = int(arg)
+                target_name = f"User {arg}"
+            else:
+                try:
+                    user_info = await client.get_users(arg)
+                    target_user_id = user_info.id
+                    target_name = user_info.first_name
+                except Exception:
+                    await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    return
+        
+        if not target_user_id:
+            await msg.reply("❌ Please reply to a user or provide username/ID to demote.", quote=True)
+            return
+
+        await db.demote_user(msg.chat.id, target_user_id)
+        await msg.reply(f"🗑 **{target_name}** has been demoted and can no longer control music.", quote=True)
+
 
     # ─── Telegram file playback ───────────────────────────────────────────────
     async def _play_telegram_file(client, msg, rm, eng, db):

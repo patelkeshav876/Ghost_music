@@ -584,37 +584,130 @@ class Resolver:
     async def _resolve_spotify(
         self, url: str, req_id: int, req_name: str, chat_id: int
     ) -> list[Track]:
-        if not self._spotify:
-            raise ValueError("Spotify integration is not configured.")
-
         m = _SP_REGEX.match(url)
         kind, sp_id = m.group(1), m.group(2)
+        searches = []
 
-        loop = asyncio.get_event_loop()
+        if self._spotify:
+            loop = asyncio.get_event_loop()
+            try:
+                if kind == "track":
+                    data = await loop.run_in_executor(None, lambda: self._spotify.track(sp_id))
+                    searches = [f"{data['name']} {data['artists'][0]['name']}"]
+                elif kind == "playlist":
+                    data   = await loop.run_in_executor(None, lambda: self._spotify.playlist_tracks(sp_id))
+                    items  = data["items"][:cfg.MAX_PLAYLIST_SIZE]
+                    searches = [
+                        f"{i['track']['name']} {i['track']['artists'][0]['name']}"
+                        for i in items if i.get("track")
+                    ]
+                elif kind == "album":
+                    data   = await loop.run_in_executor(None, lambda: self._spotify.album_tracks(sp_id))
+                    items  = data["items"][:cfg.MAX_PLAYLIST_SIZE]
+                    searches = [
+                        f"{i['name']} {i['artists'][0]['name']}"
+                        for i in items
+                    ]
+                else:
+                    raise ValueError("Unsupported Spotify link type.")
+            except Exception as e:
+                logger.warning(f"Spotify API error: {e}. Falling back to public embed scraping.")
 
-        try:
-            if kind == "track":
-                data = await loop.run_in_executor(None, lambda: self._spotify.track(sp_id))
-                searches = [f"{data['name']} {data['artists'][0]['name']}"]
-            elif kind == "playlist":
-                data   = await loop.run_in_executor(None, lambda: self._spotify.playlist_tracks(sp_id))
-                items  = data["items"][:cfg.MAX_PLAYLIST_SIZE]
-                searches = [
-                    f"{i['track']['name']} {i['track']['artists'][0]['name']}"
-                    for i in items if i.get("track")
-                ]
-            elif kind == "album":
-                data   = await loop.run_in_executor(None, lambda: self._spotify.album_tracks(sp_id))
-                items  = data["items"][:cfg.MAX_PLAYLIST_SIZE]
-                searches = [
-                    f"{i['name']} {i['artists'][0]['name']}"
-                    for i in items
-                ]
-            else:
-                raise ValueError("Unsupported Spotify link type.")
-        except Exception as e:
-            logger.error(f"Spotify error: {e}")
-            raise ValueError("Failed to fetch Spotify data.")
+        # Credentials-free public scraper fallback
+        if not searches:
+            logger.info(f"Attempting public Spotify embed scraping for {kind} {sp_id}")
+            import aiohttp
+            import json
+            import urllib.parse
+
+            try:
+                embed_url = f"https://open.spotify.com/embed/{kind}/{sp_id}"
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(embed_url, headers=headers, timeout=10) as r:
+                        if r.status == 200:
+                            html = await r.text()
+                            
+                            json_data = None
+                            # Look for script tag with id "initial-state" or "resource"
+                            script_match = re.search(r'<script[^>]*id="[^"]*initial-state[^"]*"[^>]*>(.*?)</script>', html, re.DOTALL)
+                            if not script_match:
+                                script_match = re.search(r'<script[^>]*id="resource"[^>]*>(.*?)</script>', html, re.DOTALL)
+                            
+                            if script_match:
+                                try:
+                                    raw_content = script_match.group(1).strip()
+                                    if raw_content.startswith("%"):
+                                        raw_content = urllib.parse.unquote(raw_content)
+                                    json_data = json.loads(raw_content)
+                                except Exception:
+                                    pass
+
+                            if not json_data:
+                                for script in re.finditer(r'<script[^>]*type="(?:application/json|text/json)"[^>]*>(.*?)</script>', html, re.DOTALL):
+                                    try:
+                                        raw_content = script.group(1).strip()
+                                        if raw_content.startswith("%"):
+                                            raw_content = urllib.parse.unquote(raw_content)
+                                        data = json.loads(raw_content)
+                                        if any(k in data for k in ("tracks", "trackList", "items")):
+                                            json_data = data
+                                            break
+                                    except Exception:
+                                        pass
+
+                            if json_data:
+                                tracks_list = []
+                                if "tracks" in json_data:
+                                    tracks_list = json_data["tracks"]
+                                    if isinstance(tracks_list, dict) and "items" in tracks_list:
+                                        tracks_list = tracks_list["items"]
+                                elif "trackList" in json_data:
+                                    tracks_list = json_data["trackList"]
+                                elif "entities" in json_data:
+                                    entities = json_data["entities"]
+                                    if "items" in entities:
+                                        tracks_list = entities["items"]
+                                    elif "tracks" in entities:
+                                        tracks_list = entities["tracks"]
+
+                                if kind == "track" and not tracks_list:
+                                    if "name" in json_data:
+                                        artist = json_data.get("artists", [{}])[0].get("name", "")
+                                        searches.append(f"{json_data['name']} {artist}")
+
+                                if isinstance(tracks_list, list):
+                                    for item in tracks_list:
+                                        # Handle direct track dict or wrapped track dict (e.g. from playlist)
+                                        track_obj = item.get("track") if isinstance(item.get("track"), dict) else item
+                                        title = track_obj.get("name") or track_obj.get("title")
+                                        artist = ""
+                                        artists = track_obj.get("artists") or track_obj.get("artists_names") or []
+                                        if isinstance(artists, list) and artists:
+                                            artist = artists[0].get("name") if isinstance(artists[0], dict) else artists[0]
+                                        elif isinstance(artists, str):
+                                            artist = artists
+                                        
+                                        if title:
+                                            searches.append(f"{title} {artist}".strip())
+                            
+                            # Regex fallback
+                            if not searches:
+                                raw_matches = re.findall(r'"name"\s*:\s*"([^"]+)"\s*,\s*"artists"\s*:\s*\[\s*\{\s*"name"\s*:\s*"([^"]+)"', html)
+                                for title, artist in raw_matches:
+                                    searches.append(f"{title} {artist}")
+
+                            if kind == "track" and not searches:
+                                title_match = re.search(r"<title>(.*?) - song(?: by (.*?))? \| Spotify</title>", html, re.IGNORECASE)
+                                if title_match:
+                                    searches.append(f"{title_match.group(1)} {title_match.group(2) or ''}".strip())
+            except Exception as e:
+                logger.error(f"Failed to scrape public Spotify embed: {e}")
+
+        if not searches:
+            raise ValueError("Spotify credentials not configured and public scraping failed.")
 
         # Resolve each search term → YouTube
         tracks = []

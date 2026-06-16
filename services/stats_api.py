@@ -36,6 +36,9 @@ class StatsAPI:
         r.add_get("/api/streams", self._handle_streams)
         r.add_post("/api/broadcast", self._handle_broadcast)
         r.add_post("/api/stop/{chat_id}", self._handle_stop_chat)
+        r.add_get("/api/ads",     self._handle_get_ads)
+        r.add_post("/api/ads",    self._handle_post_ads)
+        r.add_delete("/api/ads/{ad_id}", self._handle_delete_ad)
 
         # CORS middleware
         self._http.middlewares.append(self._cors_middleware)
@@ -49,7 +52,7 @@ class StatsAPI:
         
         resp.headers["Access-Control-Allow-Origin"]  = "*"
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Secret"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         return resp
 
     def _auth(self, request: web.Request) -> bool:
@@ -147,6 +150,49 @@ class StatsAPI:
             return web.json_response({"error": "Invalid chat_id"}, status=400)
         await self._app.stream.stop(chat_id)
         return web.json_response({"ok": True, "chat_id": chat_id})
+
+    async def _handle_get_ads(self, req: web.Request):
+        if not self._auth(req):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        db = self._app.db
+        ads = await db.list_all_ads()
+        # Clean Mongo _id and format datetime
+        for ad in ads:
+            ad.pop("_id", None)
+            if "updated_at" in ad and isinstance(ad["updated_at"], datetime):
+                ad["updated_at"] = ad["updated_at"].isoformat()
+        return web.json_response(ads)
+
+    async def _handle_post_ads(self, req: web.Request):
+        if not self._auth(req):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            body = await req.json()
+            ad_id = body.get("ad_id", "").strip()
+            text = body.get("text", "").strip()
+            button_text = body.get("button_text", "").strip()
+            button_url = body.get("button_url", "").strip()
+            active = bool(body.get("active", True))
+            
+            if not ad_id or not text:
+                return web.json_response({"error": "Missing ad_id or text"}, status=400)
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        db = self._app.db
+        await db.save_ad(ad_id, text, button_text, button_url, active)
+        return web.json_response({"ok": True})
+
+    async def _handle_delete_ad(self, req: web.Request):
+        if not self._auth(req):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        ad_id = req.match_info.get("ad_id")
+        if not ad_id:
+            return web.json_response({"error": "Missing ad_id"}, status=400)
+        
+        db = self._app.db
+        deleted = await db.delete_ad(ad_id)
+        return web.json_response({"ok": deleted})
 
     # ─────────────────────────────────────────────────────────────────────────
 

@@ -69,6 +69,7 @@ class GhostMusicBot:
 
         # ── Database ──────────────────────────────────────────────────────────
         self.db: Database = Database(cfg.MONGO_URI, cfg.DB_NAME)
+        self.bot.db = self.db
 
         # ── Stream engine (queue management + playback state) ─────────────────
         if self.calls:

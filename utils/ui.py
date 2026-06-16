@@ -19,7 +19,7 @@ def _esc(text: str) -> str:
     return text
 
 
-def build_now_playing(track: Track, st: ChatState) -> tuple[str, InlineKeyboardMarkup]:
+def build_now_playing(track: Track, st: ChatState, ad_text: str = "", ad_btn_text: str = "", ad_btn_url: str = "") -> tuple[str, InlineKeyboardMarkup]:
     src_icon  = _SOURCE_ICON.get(track.source, "🎵")
     loop_lbl  = {LoopMode.OFF: "Off", LoopMode.SONG: "Song", LoopMode.QUEUE: "Queue"}[st.loop]
     q_count   = len(st.queue)
@@ -37,8 +37,12 @@ def build_now_playing(track: Track, st: ChatState) -> tuple[str, InlineKeyboardM
         + ("\n⏸ *Paused*" if st.is_paused else "")
     ).strip()
 
+    if ad_text:
+        text += f"\n\n📢 **Promotion:**\n{ad_text}"
+
     pause_btn = ("▶️ Resume", "music:resume") if st.is_paused else ("⏸ Pause", "music:pause")
-    buttons   = InlineKeyboardMarkup([
+    
+    rows = [
         [
             InlineKeyboardButton(pause_btn[0], callback_data=pause_btn[1]),
             InlineKeyboardButton("⏭ Skip",    callback_data="music:skip"),
@@ -48,9 +52,15 @@ def build_now_playing(track: Track, st: ChatState) -> tuple[str, InlineKeyboardM
             InlineKeyboardButton(f"{_LOOP_ICON[st.loop]} Loop", callback_data="music:loop"),
             InlineKeyboardButton("🔀 Shuffle",  callback_data="music:shuffle"),
             InlineKeyboardButton("📋 Queue",    callback_data="music:queue"),
-        ],
-    ])
+        ]
+    ]
+
+    if ad_btn_text and ad_btn_url:
+        rows.append([InlineKeyboardButton(f"🔗 {ad_btn_text}", url=ad_btn_url)])
+
+    buttons = InlineKeyboardMarkup(rows)
     return text, buttons
+
 
 
 def build_queue_text(st: ChatState) -> str:

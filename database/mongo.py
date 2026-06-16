@@ -325,3 +325,84 @@ class Database:
             return doc.get("yt_dlp_cache")
         return None
 
+    # ─────────────────────────────────────────────────────────────────────────
+    #  Advertisement Promotions Management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def save_ad(self, ad_id: str, text: str, button_text: str = "", button_url: str = "", active: bool = True):
+        doc = {
+            "ad_id": ad_id,
+            "text": text,
+            "button_text": button_text,
+            "button_url": button_url,
+            "active": active,
+            "updated_at": datetime.now(timezone.utc)
+        }
+        if self._mock_mode:
+            if "ads" not in self._mock_data:
+                self._mock_data["ads"] = {}
+            self._mock_data["ads"][ad_id] = doc
+            return
+        await self._db.ads.update_one({"ad_id": ad_id}, {"$set": doc}, upsert=True)
+
+    async def get_active_ads(self) -> list[dict]:
+        if self._mock_mode:
+            if "ads" not in self._mock_data:
+                return []
+            return [ad for ad in self._mock_data["ads"].values() if ad.get("active")]
+        cursor = self._db.ads.find({"active": True})
+        return [doc async for doc in cursor]
+
+    async def list_all_ads(self) -> list[dict]:
+        if self._mock_mode:
+            if "ads" not in self._mock_data:
+                return []
+            return list(self._mock_data["ads"].values())
+        cursor = self._db.ads.find({})
+        return [doc async for doc in cursor]
+
+    async def delete_ad(self, ad_id: str) -> bool:
+        if self._mock_mode:
+            if "ads" in self._mock_data and ad_id in self._mock_data["ads"]:
+                del self._mock_data["ads"][ad_id]
+                return True
+            return False
+        res = await self._db.ads.delete_one({"ad_id": ad_id})
+        return res.deleted_count > 0
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  Group user promotions / demotions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def promote_user(self, chat_id: int, user_id: int):
+        if self._mock_mode:
+            chat = await self.get_chat(chat_id)
+            if "promoted_users" not in chat:
+                chat["promoted_users"] = []
+            if user_id not in chat["promoted_users"]:
+                chat["promoted_users"].append(user_id)
+            return
+        await self._db.chats.update_one(
+            {"chat_id": chat_id},
+            {"$addToSet": {"promoted_users": user_id}},
+            upsert=True
+        )
+
+    async def demote_user(self, chat_id: int, user_id: int):
+        if self._mock_mode:
+            chat = await self.get_chat(chat_id)
+            if "promoted_users" in chat and user_id in chat["promoted_users"]:
+                chat["promoted_users"].remove(user_id)
+            return
+        await self._db.chats.update_one(
+            {"chat_id": chat_id},
+            {"$pull": {"promoted_users": user_id}}
+        )
+
+    async def is_user_promoted(self, chat_id: int, user_id: int) -> bool:
+        chat = await self.get_chat(chat_id)
+        promoted = chat.get("promoted_users", [])
+        return user_id in promoted
+
+
+
