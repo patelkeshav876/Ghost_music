@@ -41,7 +41,9 @@ def register(app):
                 return
 
         if not query:
-            await msg.reply("🎵 Usage: `/play <song name or YouTube URL>`", quote=True)
+            err_msg = await msg.reply("🎵 Usage: `/play <song name or YouTube URL>`", quote=True)
+            asyncio.create_task(delete_after(err_msg, 10))
+            asyncio.create_task(delete_after(msg, 10))
             return
 
         loading = await msg.reply("🔍 Searching…", quote=True)
@@ -58,10 +60,14 @@ def register(app):
             )
         except ValueError as e:
             await loading.edit(f"❌ {e}")
+            asyncio.create_task(delete_after(loading, 10))
+            asyncio.create_task(delete_after(msg, 10))
             return
         except Exception as e:
             logger.exception(e)
             await loading.edit("❌ An unexpected error occurred. Please try again.")
+            asyncio.create_task(delete_after(loading, 10))
+            asyncio.create_task(delete_after(msg, 10))
             return
 
         st = eng.state(msg.chat.id)
@@ -76,6 +82,8 @@ def register(app):
                     await db.increment_user_songs(user_id)
                 except OverflowError as e:
                     await loading.edit(str(e))
+                    asyncio.create_task(delete_after(loading, 10))
+                    asyncio.create_task(delete_after(msg, 10))
                     return
             if len(tracks) == 1:
                 t = tracks[0]
@@ -88,6 +96,8 @@ def register(app):
             else:
                 text = f"📥 Added **{len(tracks)} tracks** to the queue."
             await loading.edit(text)
+            asyncio.create_task(delete_after(loading, 10))
+            asyncio.create_task(delete_after(msg, 10))
         else:
             # Start playing immediately with the first track
             first = tracks[0]
@@ -121,6 +131,8 @@ def register(app):
             except Exception as e:
                 logger.error(f"Play error: {e}")
                 await loading.edit(f"❌ Could not join voice chat. Make sure the assistant account is a member and the bot has voice chat permissions.\n\nError: `{e}`")
+                asyncio.create_task(delete_after(loading, 15))
+                asyncio.create_task(delete_after(msg, 15))
                 st.current = None; st.is_playing = False
                 return
 
@@ -131,7 +143,13 @@ def register(app):
             await eng._update_now_playing(msg.chat.id, first)
 
             if len(tracks) > 1:
-                await msg.reply(f"📥 Added **{len(tracks)-1}** more tracks to the queue.")
+                more_msg = await client.send_message(msg.chat.id, f"📥 Added **{len(tracks)-1}** more tracks to the queue.")
+                asyncio.create_task(delete_after(more_msg, 10))
+            
+            try:
+                await msg.delete()
+            except Exception:
+                pass
 
     # ─── /skip ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["skip", "s"], prefixes=cfg.COMMAND_PREFIX))
@@ -145,11 +163,18 @@ def register(app):
             except Exception:
                 pass
             st.now_playing_msg = None
+        
         next_track = await eng.skip(msg.chat.id)
         if next_track:
             await eng._update_now_playing(msg.chat.id, next_track)
         else:
-            await msg.reply("⏭ Skipped. Queue is now empty.")
+            empty_msg = await msg.reply("⏭ Skipped. Queue is now empty.")
+            asyncio.create_task(delete_after(empty_msg, 10))
+            
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /pause / /resume ─────────────────────────────────────────────────────
     @bot.on_message(filters.command(["pause"], prefixes=cfg.COMMAND_PREFIX))
@@ -162,7 +187,13 @@ def register(app):
             if st.current:
                 await eng._update_now_playing(msg.chat.id, st.current)
         else:
-            await msg.reply("Nothing is playing right now.")
+            err_msg = await msg.reply("Nothing is playing right now.")
+            asyncio.create_task(delete_after(err_msg, 10))
+            
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     @bot.on_message(filters.command(["resume", "r"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
@@ -174,7 +205,13 @@ def register(app):
             if st.current:
                 await eng._update_now_playing(msg.chat.id, st.current)
         else:
-            await msg.reply("Nothing is paused.")
+            err_msg = await msg.reply("Nothing is paused.")
+            asyncio.create_task(delete_after(err_msg, 10))
+            
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /stop ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["stop", "end"], prefixes=cfg.COMMAND_PREFIX))
@@ -189,7 +226,12 @@ def register(app):
                 pass
             st.now_playing_msg = None
         await eng.stop(msg.chat.id)
-        await msg.reply("⏹ Stopped and left the voice chat.")
+        stop_msg = await msg.reply("⏹ Stopped and left the voice chat.")
+        asyncio.create_task(delete_after(stop_msg, 10))
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /queue ───────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["queue", "q"], prefixes=cfg.COMMAND_PREFIX))
@@ -197,9 +239,19 @@ def register(app):
     async def queue_cmd(client, msg):
         st = eng.state(msg.chat.id)
         if not st.current and not st.queue:
-            await msg.reply("Queue is empty. Use /play to add songs!")
+            err_msg = await msg.reply("Queue is empty. Use /play to add songs!")
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
-        await msg.reply(build_queue_text(st), disable_web_page_preview=True)
+        q_msg = await msg.reply(build_queue_text(st), disable_web_page_preview=True)
+        asyncio.create_task(delete_after(q_msg, 15))
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /nowplaying ──────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["np", "nowplaying", "current"], prefixes=cfg.COMMAND_PREFIX))
@@ -207,10 +259,19 @@ def register(app):
     async def np_cmd(client, msg):
         st = eng.state(msg.chat.id)
         if not st.current:
-            await msg.reply("Nothing is playing right now.")
+            err_msg = await msg.reply("Nothing is playing right now.")
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
-        text, buttons = build_now_playing(st.current, st)
-        await msg.reply(text, reply_markup=buttons, disable_web_page_preview=True)
+        # Resend a fresh Now Playing card to float it at the bottom
+        await eng._update_now_playing(msg.chat.id, st.current)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /volume ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["volume", "vol", "v"], prefixes=cfg.COMMAND_PREFIX))
@@ -219,18 +280,33 @@ def register(app):
     async def volume_cmd(client, msg):
         if len(msg.command) < 2:
             st = eng.state(msg.chat.id)
-            await msg.reply(f"🔊 Current volume: **{st.volume}%**\nUsage: `/volume 1–200`")
+            vol_msg = await msg.reply(f"🔊 Current volume: **{st.volume}%**\nUsage: `/volume 1–200`")
+            asyncio.create_task(delete_after(vol_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
         try:
             vol = int(msg.command[1])
         except ValueError:
-            await msg.reply("❌ Volume must be a number between 1 and 200.")
+            err_msg = await msg.reply("❌ Volume must be a number between 1 and 200.")
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
         await eng.set_volume(msg.chat.id, vol)
-        await msg.reply(f"🔊 Volume set to **{max(1, min(200, vol))}%**")
+        vol_msg = await msg.reply(f"🔊 Volume set to **{max(1, min(200, vol))}%**")
+        asyncio.create_task(delete_after(vol_msg, 10))
         st = eng.state(msg.chat.id)
         if st.current:
             await eng._update_now_playing(msg.chat.id, st.current)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /loop ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["loop", "repeat"], prefixes=cfg.COMMAND_PREFIX))
@@ -247,9 +323,14 @@ def register(app):
 
         emoji = {"off": "🔁", "song": "🔂", "queue": "🔁"}
         label = {LoopMode.OFF: "Off", LoopMode.SONG: "Song", LoopMode.QUEUE: "Queue"}
-        await msg.reply(f"{emoji.get(new_mode.value, '🔁')} Loop mode: **{label[new_mode]}**")
+        loop_msg = await msg.reply(f"{emoji.get(new_mode.value, '🔁')} Loop mode: **{label[new_mode]}**")
+        asyncio.create_task(delete_after(loop_msg, 10))
         if st.current:
             await eng._update_now_playing(msg.chat.id, st.current)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /shuffle ─────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["shuffle"], prefixes=cfg.COMMAND_PREFIX))
@@ -258,12 +339,18 @@ def register(app):
     async def shuffle_cmd(client, msg):
         count = await eng.shuffle_queue(msg.chat.id)
         if count == 0:
-            await msg.reply("Queue is empty, nothing to shuffle.")
+            err_msg = await msg.reply("Queue is empty, nothing to shuffle.")
+            asyncio.create_task(delete_after(err_msg, 10))
         else:
-            await msg.reply(f"🔀 Queue shuffled! ({count} tracks)")
+            shuf_msg = await msg.reply(f"🔀 Queue shuffled! ({count} tracks)")
+            asyncio.create_task(delete_after(shuf_msg, 10))
             st = eng.state(msg.chat.id)
             if st.current:
                 await eng._update_now_playing(msg.chat.id, st.current)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /clearqueue ──────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["clearqueue", "cq", "clear"], prefixes=cfg.COMMAND_PREFIX))
@@ -273,7 +360,12 @@ def register(app):
         st = eng.state(msg.chat.id)
         n  = len(st.queue)
         st.queue.clear()
-        await msg.reply(f"🗑 Cleared {n} track(s) from the queue.")
+        clear_msg = await msg.reply(f"🗑 Cleared {n} track(s) from the queue.")
+        asyncio.create_task(delete_after(clear_msg, 10))
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /lyrics ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["lyrics", "ly"], prefixes=cfg.COMMAND_PREFIX))
@@ -407,7 +499,12 @@ def register(app):
     @admin_only
     async def promote_cmd(client: Client, msg: Message):
         if msg.chat.id > 0:
-            await msg.reply("❌ This command can only be used in groups.", quote=True)
+            err_msg = await msg.reply("❌ This command can only be used in groups.", quote=True)
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
 
         target_user_id = None
@@ -429,15 +526,30 @@ def register(app):
                     target_user_id = user_info.id
                     target_name = user_info.first_name
                 except Exception:
-                    await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    err_msg = await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    asyncio.create_task(delete_after(err_msg, 10))
+                    try:
+                        await msg.delete()
+                    except Exception:
+                        pass
                     return
         
         if not target_user_id:
-            await msg.reply("❌ Please reply to a user or provide username/ID to promote.", quote=True)
+            err_msg = await msg.reply("❌ Please reply to a user or provide username/ID to promote.", quote=True)
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
 
         await db.promote_user(msg.chat.id, target_user_id)
-        await msg.reply(f"✅ **{target_name}** has been promoted to music control operator in this group.", quote=True)
+        promo_msg = await msg.reply(f"✅ **{target_name}** has been promoted to music control operator in this group.", quote=True)
+        asyncio.create_task(delete_after(promo_msg, 10))
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
     # ─── /demote ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["demote"], prefixes=cfg.COMMAND_PREFIX))
@@ -445,7 +557,12 @@ def register(app):
     @admin_only
     async def demote_cmd(client: Client, msg: Message):
         if msg.chat.id > 0:
-            await msg.reply("❌ This command can only be used in groups.", quote=True)
+            err_msg = await msg.reply("❌ This command can only be used in groups.", quote=True)
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
 
         target_user_id = None
@@ -467,15 +584,30 @@ def register(app):
                     target_user_id = user_info.id
                     target_name = user_info.first_name
                 except Exception:
-                    await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    err_msg = await msg.reply("❌ User not found. Use ID, reply, or username.", quote=True)
+                    asyncio.create_task(delete_after(err_msg, 10))
+                    try:
+                        await msg.delete()
+                    except Exception:
+                        pass
                     return
         
         if not target_user_id:
-            await msg.reply("❌ Please reply to a user or provide username/ID to demote.", quote=True)
+            err_msg = await msg.reply("❌ Please reply to a user or provide username/ID to demote.", quote=True)
+            asyncio.create_task(delete_after(err_msg, 10))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
             return
 
         await db.demote_user(msg.chat.id, target_user_id)
-        await msg.reply(f"🗑 **{target_name}** has been demoted and can no longer control music.", quote=True)
+        demote_msg = await msg.reply(f"🗑 **{target_name}** has been demoted and can no longer control music.", quote=True)
+        asyncio.create_task(delete_after(demote_msg, 10))
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
 
     # ─── Telegram file playback ───────────────────────────────────────────────
