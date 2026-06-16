@@ -129,10 +129,129 @@ class Resolver:
             if tracks:
                 return tracks
         except Exception as e:
-            logger.warning(f"JioSaavn resolution failed, falling back to YouTube: {e}")
+            logger.warning(f"JioSaavn resolution failed: {e}")
+
+        # Search Jamendo next!
+        try:
+            tracks = await self._resolve_jamendo(query, requester_id, requester_name, chat_id)
+            if tracks:
+                return tracks
+        except Exception as e:
+            logger.warning(f"Jamendo resolution failed: {e}")
+
+        # Search Archive.org next!
+        try:
+            tracks = await self._resolve_archive(query, requester_id, requester_name, chat_id)
+            if tracks:
+                return tracks
+        except Exception as e:
+            logger.warning(f"Archive.org resolution failed: {e}")
 
         # Fallback to YouTube
         return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    async def _resolve_jamendo(
+        self, query: str, req_id: int, req_name: str, chat_id: int
+    ) -> list[Track]:
+        import aiohttp
+        url = "https://api.jamendo.com/v3.0/tracks/"
+        params = {
+            "client_id": "56d30c95",
+            "format": "json",
+            "limit": 1,
+            "namesearch": query,
+            "include": "musicinfo"
+        }
+        try:
+            logger.info(f"Searching Jamendo for '{query}'")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=6) as resp:
+                    if resp.status == 200:
+                        payload = await resp.json()
+                        results = payload.get("results", [])
+                        if results:
+                            song = results[0]
+                            stream_url = song.get("audio")
+                            if stream_url:
+                                track = Track(
+                                    title=song.get("name", "Unknown Jamendo Song"),
+                                    url=stream_url,
+                                    webpage=song.get("shareurl", stream_url),
+                                    duration=int(song.get("duration") or 0),
+                                    thumbnail=song.get("image") or "",
+                                    requester_id=req_id,
+                                    requester_name=req_name,
+                                    chat_id=chat_id,
+                                    source="jiosaavn", # UI icon compatibility
+                                )
+                                logger.info(f"Successfully resolved '{query}' via Jamendo to '{track.title}'")
+                                return [track]
+        except Exception as e:
+            logger.error(f"Jamendo API failed: {e}")
+        return []
+
+    # ─────────────────────────────────────────────────────────────────────────
+    async def _resolve_archive(
+        self, query: str, req_id: int, req_name: str, chat_id: int
+    ) -> list[Track]:
+        import aiohttp
+        search_url = "https://advancedsearch.php" # we will use query on main domain
+        # Advanced search endpoint
+        url = "https://archive.org/advancedsearch.php"
+        params = {
+            "q": f"title:({query}) AND mediatype:(audio)",
+            "fl[]": "identifier,title,downloads",
+            "sort[]": "downloads desc",
+            "rows": 1,
+            "output": "json"
+        }
+        try:
+            logger.info(f"Searching Archive.org for '{query}'")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=6) as resp:
+                    if resp.status == 200:
+                        payload = await resp.json()
+                        docs = payload.get("response", {}).get("docs", [])
+                        if docs:
+                            doc = docs[0]
+                            identifier = doc.get("identifier")
+                            title = doc.get("title", "Archive Song")
+                            
+                            # Get files for this identifier
+                            meta_url = f"https://archive.org/metadata/{identifier}"
+                            async with session.get(meta_url, timeout=6) as meta_resp:
+                                if meta_resp.status == 200:
+                                    meta_data = await meta_resp.json()
+                                    files = meta_data.get("files", [])
+                                    # Find mp3 files
+                                    mp3_files = [
+                                        f for f in files 
+                                        if f.get("name", "").endswith(".mp3")
+                                    ]
+                                    if mp3_files:
+                                        # Pick largest or first mp3 file
+                                        mp3_file = max(mp3_files, key=lambda f: int(f.get("size") or 0))
+                                        filename = mp3_file["name"]
+                                        stream_url = f"https://archive.org/download/{identifier}/{filename}"
+                                        
+                                        track = Track(
+                                            title=title,
+                                            url=stream_url,
+                                            webpage=f"https://archive.org/details/{identifier}",
+                                            duration=int(float(mp3_file.get("length") or 0)),
+                                            thumbnail="",
+                                            requester_id=req_id,
+                                            requester_name=req_name,
+                                            chat_id=chat_id,
+                                            source="jiosaavn", # UI icon compatibility
+                                        )
+                                        logger.info(f"Successfully resolved '{query}' via Archive.org to '{track.title}'")
+                                        return [track]
+        except Exception as e:
+            logger.error(f"Archive.org query failed: {e}")
+        return []
+
 
     # ─────────────────────────────────────────────────────────────────────────
     async def _resolve_jiosaavn(
