@@ -18,7 +18,7 @@ from pyrogram import Client
 
 from config.settings import cfg
 from database.mongo import Database
-from utils.helpers import format_duration
+from utils.helpers import format_duration, delete_after
 
 logger = logging.getLogger("streaming.engine")
 
@@ -83,6 +83,8 @@ class StreamEngine:
         @self.calls.on_stream_end()
         async def stream_end_handler(client, update):
             await self._on_stream_end(client, update)
+
+        self._ad_task = asyncio.create_task(self._ad_scheduler_loop())
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Public API
@@ -229,6 +231,8 @@ class StreamEngine:
 
     async def stop_all(self):
         """Graceful shutdown — stop all active streams."""
+        if hasattr(self, "_ad_task") and self._ad_task:
+            self._ad_task.cancel()
         for chat_id in list(self._states.keys()):
             try:
                 await self.stop(chat_id)
@@ -389,3 +393,49 @@ class StreamEngine:
 
     async def _send_queue_empty(self, chat_id: int):
         await self.bot.send_message(chat_id, "✅ Queue finished. Add more songs with /play!")
+
+    async def _ad_scheduler_loop(self):
+        """Sends active promotions to active streaming channels at configured interval."""
+        # Wait a short duration on bot startup
+        await asyncio.sleep(45)
+        
+        while True:
+            try:
+                # Find chats currently streaming
+                active_chats = [
+                    st.chat_id for st in self._states.values()
+                    if st.is_playing and not st.is_paused
+                ]
+                
+                if active_chats:
+                    active_ads = await self.db.get_active_ads()
+                    if active_ads:
+                        import random
+                        ad = random.choice(active_ads)
+                        ad_text = ad.get("text", "")
+                        btn_text = ad.get("button_text", "")
+                        btn_url = ad.get("button_url", "")
+                        
+                        if ad_text:
+                            from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            markup = None
+                            if btn_text and btn_url:
+                                markup = InlineKeyboardMarkup([[InlineKeyboardButton(f"🔗 {btn_text}", url=btn_url)]])
+                            
+                            for cid in active_chats:
+                                try:
+                                    sent = await self.bot.send_message(
+                                        chat_id=cid,
+                                        text=f"📢 **Promotion:**\n\n{ad_text}",
+                                        reply_markup=markup,
+                                        disable_web_page_preview=True
+                                    )
+                                    # Delete after 2 minutes to keep chat clean
+                                    asyncio.create_task(delete_after(sent, 120))
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.error(f"Error in ad scheduler loop: {e}")
+            
+            await asyncio.sleep(cfg.AD_INTERVAL)
+

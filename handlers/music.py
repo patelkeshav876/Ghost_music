@@ -452,7 +452,11 @@ def register(app):
     # ─── /help ────────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["help", "start"], prefixes=cfg.COMMAND_PREFIX))
     async def help_cmd(client, msg):
-        await msg.reply(HELP_TEXT, disable_web_page_preview=True)
+        bot_username = client.me.username if client.me else (await client.get_me()).username
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Add me to chat ➕", url=f"https://t.me/{bot_username}?startgroup=true")]
+        ])
+        await msg.reply(HELP_TEXT, reply_markup=keyboard, disable_web_page_preview=True)
 
     # ─── Inline buttons from now-playing card ─────────────────────────────────
     @bot.on_callback_query(filters.regex(r"^music:"))

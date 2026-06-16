@@ -95,6 +95,9 @@ class Settings:
     STATS_PORT:         int    = field(default_factory=lambda: _int("STATS_PORT", 8080))
     STATS_SECRET:       str    = field(default_factory=lambda: _optional("STATS_SECRET", "changeme"))
 
+    # ── Auto-Promotion ───────────────────────────────────────────────────────
+    AD_INTERVAL:        int    = field(default_factory=lambda: _int("AD_INTERVAL", 1200)) # in seconds
+
 
 # Singleton — import this everywhere
 cfg = Settings()
