@@ -164,26 +164,6 @@ class StreamEngine:
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
             else:
-                # If no VC exists, create one via the assistant (userbot) first.
-                # This prevents BOT_METHOD_INVALID when no voice chat is active.
-                # Use assistant (userbot) to create the VC — bots cannot do this
-                _vc_client = self.assistant if self.assistant else self.bot
-                try:
-                    import random
-                    from pyrogram.raw import functions
-                    peer = await _vc_client.resolve_peer(chat_id)
-                    await _vc_client.invoke(
-                        functions.phone.CreateGroupCall(
-                            peer=peer,
-                            random_id=random.randint(10000, 99999),
-                        )
-                    )
-                    logger.info(f"[{chat_id}] Voice chat created via assistant.")
-                    await asyncio.sleep(1)  # let Telegram register the new VC
-                except Exception as vc_err:
-                    # VC may already exist, or assistant lacks permissions — proceed anyway
-                    logger.debug(f"[{chat_id}] Pre-create VC skipped: {vc_err}")
-
                 await self.calls.join_group_call(chat_id, stream)
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")

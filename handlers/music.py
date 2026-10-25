@@ -122,11 +122,27 @@ def register(app):
             except Exception as e:
                 logger.error(f"Play error: {e}")
                 err = str(e)
-                if "BOT_METHOD_INVALID" in err or "CreateGroupCall" in err:
-                    hint = ("❌ Could not start voice chat.\n\n"
-                            "**Please start a Voice Chat manually in the group first:**\n"
-                            "Group Settings → Voice Chat → Start Voice Chat\n\n"
-                            "Then retry /play.")
+                if "Peer id invalid" in err or "peer" in err.lower():
+                    hint = (
+                        "❌ **Assistant not in group!**\n\n"
+                        "The assistant (userbot) account must be added to this group first.\n\n"
+                        "**Steps to fix:**\n"
+                        "1. Add the assistant account to this group as a member\n"
+                        "2. Start a Voice Chat in the group (tap the mic icon)\n"
+                        "3. Then retry `/play`"
+                    )
+                elif "BOT_METHOD_INVALID" in err or "CreateGroupCall" in err:
+                    hint = (
+                        "❌ **No active Voice Chat found!**\n\n"
+                        "Please start a Voice Chat in the group first:\n"
+                        "Tap the **mic icon** in your group → **Start Voice Chat**\n\n"
+                        "Then retry `/play`"
+                    )
+                elif "GROUPCALL_FORBIDDEN" in err or "forbidden" in err.lower():
+                    hint = (
+                        "❌ **Voice Chat permission denied!**\n\n"
+                        "Make sure the assistant account has permission to join voice chats in this group."
+                    )
                 else:
                     hint = f"❌ Could not join voice chat.\n\nError: `{e}`"
                 await loading.edit(hint)
