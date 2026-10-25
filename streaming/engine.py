@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Optional
 
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import AudioPiped
+from pytgcalls.types.input_stream import AudioPiped, MediaStream
 from pytgcalls.types.input_stream.audio_parameters import AudioParameters
 from pyrogram import Client
 
@@ -156,15 +156,31 @@ class StreamEngine:
             except Exception as e:
                 logger.error(f"[{chat_id}] Dynamic URL resolution failed for {track.title}: {e}")
 
-        # AudioPiped streams any URL/file through ffmpeg — the correct v1.x way
-        stream = AudioPiped(track.url, audio_parameters=_AUDIO_PARAMS)
+        # MediaStream with IGNORE on video streams audio cleanly through ffmpeg
+        stream = MediaStream(track.url, audio_parameters=_AUDIO_PARAMS, video_flags=MediaStream.IGNORE)
         st = self.state(chat_id)
         try:
-            # Check if already in a call → use change_stream, else join fresh
+            # Check if already in a call -> try change_stream; if that fails or not in call -> join fresh
             active_chats = [c.chat_id for c in self.calls.active_calls]
+            joined_fresh = False
+            from pyrogram.raw import functions, types
+            input_call = None
+
             if chat_id in active_chats:
-                await self.calls.change_stream(chat_id, stream)
+                try:
+                    await self.calls.change_stream(chat_id, stream)
+                    logger.info(f"[{chat_id}] Stream changed to: {track.title}")
+                except Exception as change_err:
+                    logger.warning(f"[{chat_id}] change_stream failed ({change_err}), falling back to fresh join...")
+                    try:
+                        await self.calls.leave_group_call(chat_id)
+                    except Exception:
+                        pass
+                    joined_fresh = True
             else:
+                joined_fresh = True
+
+            if joined_fresh:
                 # ── 0. Ensure Assistant is a member of the group ─────────────
                 if self.assistant:
                     asst_id = self.assistant_user.id if self.assistant_user else None
@@ -197,15 +213,11 @@ class StreamEngine:
                                 logger.warning(f"[{chat_id}] Assistant auto-join failed: {join_err}")
 
                 # -- Robust VC Resolution & Cache Pre-population -------------
-                # Try finding active voice chat via bot (group admin) or assistant
                 resolved_chat_id = chat_id
                 try:
                     resolved_chat_id = await self.calls._resolve_chat_id(chat_id)
                 except Exception:
                     pass
-
-                from pyrogram.raw import functions, types
-                input_call = None
 
                 # 1. Check via Bot client (Bot is already admin in group, Telegram returns full_chat.call)
                 try:
@@ -331,20 +343,46 @@ class StreamEngine:
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
 
-            # Unmute assistant in voice chat via admin bot client (bypasses "New members muted")
-            try:
-                if input_call and self.assistant:
-                    asst_peer = await self.assistant.resolve_peer("me")
-                    await self.bot.invoke(
-                        functions.phone.EditGroupCallMember(
-                            call=input_call,
-                            participant=asst_peer,
-                            muted=False,
+            # ── Auto-unmute assistant in voice chat ──────────────────────────
+            # Fixes silent playback when voice chat defaults new members to muted
+            if self.assistant:
+                # 1. Admin bot unmutes assistant participant
+                try:
+                    asst_id = self.assistant_user.id if self.assistant_user else (await self.assistant.get_me()).id
+                    bot_asst_peer = await self.bot.resolve_peer(asst_id)
+                    unmute_call = input_call or self.calls._app._bind_client._cache.get_full_chat(chat_id)
+                    if unmute_call:
+                        await self.bot.invoke(
+                            functions.phone.EditGroupCallParticipant(
+                                call=unmute_call,
+                                participant=bot_asst_peer,
+                                muted=False,
+                            )
                         )
-                    )
-                    logger.info(f"[{chat_id}] Assistant microphone unmuted by admin bot.")
-            except Exception as unmute_err:
-                logger.debug(f"[{chat_id}] Auto-unmute note: {unmute_err}")
+                        logger.info(f"[{chat_id}] Assistant microphone unmuted by admin bot.")
+                except Exception as b_unmute_err:
+                    logger.debug(f"[{chat_id}] Admin bot unmute note: {b_unmute_err}")
+
+                # 2. Assistant self-unmutes
+                try:
+                    unmute_call = input_call or self.calls._app._bind_client._cache.get_full_chat(chat_id)
+                    if unmute_call:
+                        await self.assistant.invoke(
+                            functions.phone.EditGroupCallParticipant(
+                                call=unmute_call,
+                                participant=types.InputPeerSelf(),
+                                muted=False,
+                            )
+                        )
+                        logger.info(f"[{chat_id}] Assistant self-unmuted.")
+                except Exception as a_unmute_err:
+                    logger.debug(f"[{chat_id}] Assistant self-unmute note: {a_unmute_err}")
+
+            # 3. Unmute WebRTC stream in PyTgCalls
+            try:
+                await self.calls.unmute_stream(chat_id)
+            except Exception as stream_unmute_err:
+                logger.debug(f"[{chat_id}] Stream unmute note: {stream_unmute_err}")
 
             try:
                 await self.calls.change_volume_call(chat_id, st.volume)

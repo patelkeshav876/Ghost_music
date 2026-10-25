@@ -360,16 +360,37 @@ def register(app):
         curr_song = st.current.title if st.current else "None"
         curr_source = st.current.source if st.current else "None"
 
+        asst_in_group = "Unknown"
+        asst_is_admin = False
+        if hasattr(eng, "assistant_user") and eng.assistant_user:
+            try:
+                m = await client.get_chat_member(msg.chat.id, eng.assistant_user.id)
+                if m.status in ("administrator", "creator"):
+                    asst_in_group = "✅ Yes (Admin)"
+                    asst_is_admin = True
+                elif m.status not in ("left", "kicked"):
+                    asst_in_group = "⚠️ Member (Not Admin)"
+                else:
+                    asst_in_group = "❌ Not in group"
+            except Exception:
+                asst_in_group = "❌ Not in group"
+
+        tip = ""
+        if not asst_is_admin:
+            tip = f"\n\n💡 **Tip:** Make {asst_user} Admin with 'Manage Video Chats' permission."
+
         text = (
             f"🎧 **GhostMusic Voice Status**\n\n"
             f"🤖 **Bot:** @{(await client.get_me()).username}\n"
             f"👤 **Assistant Account:** {asst_name} ({asst_user})\n"
             f"🆔 **Assistant ID:** `{asst_id}`\n"
+            f"👥 **Assistant In Group:** {asst_in_group}\n"
             f"📡 **Connected to Voice Chat:** {'✅ Yes' if is_in_vc else '❌ No'}\n"
             f"🎵 **Current Song:** {curr_song} ({curr_source})\n"
             f"🔊 **Volume:** {st.volume}%\n"
             f"⏸ **Is Paused:** {st.is_paused}\n"
             f"📑 **Queue Length:** {len(st.queue)}"
+            f"{tip}"
         )
         await msg.reply(text)
 
