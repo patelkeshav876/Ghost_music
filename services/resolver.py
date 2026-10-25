@@ -279,12 +279,93 @@ class Resolver:
             logger.error(f"Archive.org query failed: {e}")
         return []
 
+    @staticmethod
+    def _decrypt_saavn_url(encrypted_url: str) -> str:
+        """Decrypts JioSaavn encrypted_media_url to direct CDN streaming link."""
+        import base64
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            from cryptography.hazmat.primitives import padding
+
+            key = b"383465913834659138346591"
+            cipher = Cipher(algorithms.TripleDES(key), modes.ECB())
+            decryptor = cipher.decryptor()
+            raw = base64.b64decode(encrypted_url.strip())
+            padded = decryptor.update(raw) + decryptor.finalize()
+            unpadder = padding.PKCS7(64).unpadder()
+            dec = unpadder.update(padded) + unpadder.finalize()
+            url = dec.decode("utf-8").strip()
+
+            # Upgrade to 320kbps CD quality stream
+            if "_96.mp4" in url:
+                url = url.replace("_96.mp4", "_320.mp4")
+            elif "_160.mp4" in url:
+                url = url.replace("_160.mp4", "_320.mp4")
+            return url
 
     # ─────────────────────────────────────────────────────────────────────────
     async def _resolve_jiosaavn(
         self, query: str, req_id: int, req_name: str, chat_id: int
     ) -> list[Track]:
         import aiohttp
+        import urllib.parse
+        import html
+
+        # ── 1. Native Direct JioSaavn API + Official CDN (Instant 320kbps, No Third-Party Server) ──
+        try:
+            encoded_query = urllib.parse.quote(query)
+            search_url = (
+                f"https://www.jiosaavn.com/api.php?__call=autocomplete.get"
+                f"&query={encoded_query}&_format=json&_marker=0&ctx=android"
+            )
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get(search_url, timeout=6) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        songs_list = data.get("songs", {}).get("data", [])
+                        if songs_list:
+                            pid = songs_list[0].get("id")
+                            if pid:
+                                details_url = (
+                                    f"https://www.jiosaavn.com/api.php?__call=song.getDetails"
+                                    f"&pids={pid}&_format=json&_marker=0&api_version=4&ctx=web6dot0"
+                                )
+                                async with session.get(details_url, timeout=6) as d_resp:
+                                    if d_resp.status == 200:
+                                        d_data = await d_resp.json(content_type=None)
+                                        songs = d_data.get("songs", [])
+                                        if songs:
+                                            song_obj = songs[0]
+                                            more_info = song_obj.get("more_info", {})
+                                            enc_url = more_info.get("encrypted_media_url")
+                                            if enc_url:
+                                                stream_url = self._decrypt_saavn_url(enc_url)
+                                                title = song_obj.get("title") or songs_list[0].get("title", query)
+                                                title = html.unescape(title)
+                                                dur = int(more_info.get("duration") or 0)
+                                                thumb = song_obj.get("image", "").replace("150x150", "500x500")
+
+                                                track = Track(
+                                                    title=title,
+                                                    url=stream_url,
+                                                    webpage=song_obj.get("perma_url") or stream_url,
+                                                    duration=dur,
+                                                    thumbnail=thumb,
+                                                    requester_id=req_id,
+                                                    requester_name=req_name,
+                                                    chat_id=chat_id,
+                                                    source="jiosaavn",
+                                                )
+                                                logger.info(f"Direct JioSaavn resolved: '{track.title}' (320kbps CDN stream)")
+                                                return [track]
+        except Exception as native_err:
+            logger.debug(f"Native JioSaavn search error: {native_err}")
+
+        # ── 2. Fallback to Custom or Public JioSaavn API Instances (if configured) ──
         endpoints = []
         if cfg.SAAVN_API_URL:
             for url in cfg.SAAVN_API_URL.split(","):
@@ -297,64 +378,39 @@ class Resolver:
                             u = f"{u}/api/search/songs"
                     endpoints.append(u)
 
-        # Fallback public instances
-        default_endpoints = [
-            "https://saavn.sumit.co/api/search/songs",
-            "https://saavn.dev/api/search/songs",
-            "https://jiosaavn-api.vercel.app/api/search/songs"
-        ]
-        for ep in default_endpoints:
-            if ep not in endpoints:
-                endpoints.append(ep)
-        
         for base_url in endpoints:
             try:
-                logger.info(f"Searching JioSaavn via {base_url} for '{query}'")
+                logger.info(f"Searching JioSaavn fallback {base_url} for '{query}'")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(base_url, params={"query": query}, timeout=6) as resp:
                         if resp.status == 200:
                             payload = await resp.json()
                             data = payload.get("data", {})
                             results = data.get("results", []) if isinstance(data, dict) else data
-                            
                             if not results:
                                 continue
-                                
                             song = results[0]
-                            # Find highest quality download URL
                             download_urls = song.get("downloadUrl", [])
                             if not download_urls:
                                 continue
-                            
-                            # Sort by quality if possible (e.g. 320kbps > 160kbps > 96kbps)
                             best_stream = None
                             for qual in ["320kbps", "160kbps", "96kbps", "48kbps"]:
                                 found = [u for u in download_urls if u.get("quality") == qual]
                                 if found:
                                     best_stream = found[0]
                                     break
-                            
                             if not best_stream:
                                 best_stream = download_urls[-1]
-                                
                             stream_url = best_stream.get("link") or best_stream.get("url")
                             if not stream_url:
                                 continue
-                                
-                            # Image resolution fallback
                             images = song.get("image", [])
-                            thumb = ""
-                            if images:
-                                # Pick highest resolution image
-                                thumb = images[-1].get("link") or images[-1].get("url") or ""
-                                
-                            # Duration
+                            thumb = (images[-1].get("link") or images[-1].get("url") or "") if images else ""
                             dur = int(song.get("duration") or 0)
-                            
                             track = Track(
                                 title=song.get("name", "Unknown JioSaavn Song"),
                                 url=stream_url,
-                                webpage=stream_url, # Stream is direct URL
+                                webpage=stream_url,
                                 duration=dur,
                                 thumbnail=thumb,
                                 requester_id=req_id,
@@ -362,12 +418,13 @@ class Resolver:
                                 chat_id=chat_id,
                                 source="jiosaavn",
                             )
-                            logger.info(f"Successfully resolved '{query}' via JioSaavn API to '{track.title}'")
+                            logger.info(f"Resolved via JioSaavn fallback API: '{track.title}'")
                             return [track]
             except Exception as e:
-                logger.error(f"JioSaavn API {base_url} failed: {e}")
-                
+                logger.debug(f"JioSaavn fallback {base_url} failed: {e}")
+
         return []
+
 
 
     # ─────────────────────────────────────────────────────────────────────────
