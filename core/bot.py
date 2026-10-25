@@ -73,7 +73,7 @@ class GhostMusicBot:
 
         # ── Stream engine (queue management + playback state) ─────────────────
         if self.calls:
-            self.stream: StreamEngine = StreamEngine(self.calls, self.bot, self.db)
+            self.stream: StreamEngine = StreamEngine(self.calls, self.bot, self.db, assistant=self.assistant)
         else:
             self.stream = None
 

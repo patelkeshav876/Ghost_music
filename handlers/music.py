@@ -115,27 +115,23 @@ def register(app):
             await db.increment_stat(msg.chat.id, "tracks_queued")
 
             try:
-                from pytgcalls.types.input_stream import AudioPiped
-                from pytgcalls.types.input_stream.audio_parameters import AudioParameters
-                stream = AudioPiped(
-                    first.url,
-                    audio_parameters=AudioParameters(bitrate=48000, channels=2),
-                )
-                # Join fresh or switch if already in a call
-                active_chats = [c.chat_id for c in eng.calls.active_calls]
-                if msg.chat.id in active_chats:
-                    await eng.calls.change_stream(msg.chat.id, stream)
-                else:
-                    await eng.calls.join_group_call(msg.chat.id, stream)
-                try:
-                    await eng.calls.change_volume_call(msg.chat.id, st.volume)
-                except Exception:
-                    pass
+                # Delegate entirely to engine._start_stream which handles:
+                # 1. VC creation via assistant if no voice chat exists
+                # 2. join_group_call or change_stream as appropriate
+                await eng._start_stream(msg.chat.id, first)
             except Exception as e:
                 logger.error(f"Play error: {e}")
-                await loading.edit(f"❌ Could not join voice chat. Make sure the assistant account is a member and the bot has voice chat permissions.\n\nError: `{e}`")
-                asyncio.create_task(delete_after(loading, 15))
-                asyncio.create_task(delete_after(msg, 15))
+                err = str(e)
+                if "BOT_METHOD_INVALID" in err or "CreateGroupCall" in err:
+                    hint = ("❌ Could not start voice chat.\n\n"
+                            "**Please start a Voice Chat manually in the group first:**\n"
+                            "Group Settings → Voice Chat → Start Voice Chat\n\n"
+                            "Then retry /play.")
+                else:
+                    hint = f"❌ Could not join voice chat.\n\nError: `{e}`"
+                await loading.edit(hint)
+                asyncio.create_task(delete_after(loading, 20))
+                asyncio.create_task(delete_after(msg, 20))
                 st.current = None; st.is_playing = False
                 return
 

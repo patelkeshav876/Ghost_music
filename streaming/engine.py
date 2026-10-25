@@ -72,10 +72,11 @@ class StreamEngine:
     Thread-safe: uses asyncio.Lock per chat.
     """
 
-    def __init__(self, calls: PyTgCalls, bot: Client, db: Database):
-        self.calls   = calls
-        self.bot     = bot
-        self.db      = db
+    def __init__(self, calls: PyTgCalls, bot: Client, db: Database, assistant: Client = None):
+        self.calls     = calls
+        self.bot       = bot
+        self.assistant = assistant  # userbot — used to create group calls
+        self.db        = db
         self._states: dict[int, ChatState] = {}
         self._locks:  dict[int, asyncio.Lock] = {}
 
@@ -163,6 +164,26 @@ class StreamEngine:
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
             else:
+                # If no VC exists, create one via the assistant (userbot) first.
+                # This prevents BOT_METHOD_INVALID when no voice chat is active.
+                # Use assistant (userbot) to create the VC — bots cannot do this
+                _vc_client = self.assistant if self.assistant else self.bot
+                try:
+                    import random
+                    from pyrogram.raw import functions
+                    peer = await _vc_client.resolve_peer(chat_id)
+                    await _vc_client.invoke(
+                        functions.phone.CreateGroupCall(
+                            peer=peer,
+                            random_id=random.randint(10000, 99999),
+                        )
+                    )
+                    logger.info(f"[{chat_id}] Voice chat created via assistant.")
+                    await asyncio.sleep(1)  # let Telegram register the new VC
+                except Exception as vc_err:
+                    # VC may already exist, or assistant lacks permissions — proceed anyway
+                    logger.debug(f"[{chat_id}] Pre-create VC skipped: {vc_err}")
+
                 await self.calls.join_group_call(chat_id, stream)
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
@@ -173,8 +194,7 @@ class StreamEngine:
                 pass
         except Exception as e:
             logger.error(f"[{chat_id}] Stream start error: {e}")
-            # Try to play next if this one fails
-            await self.play_next(chat_id)
+            raise  # re-raise so callers can show a proper error message
 
 
     async def skip(self, chat_id: int) -> Optional[Track]:
