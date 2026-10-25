@@ -164,30 +164,56 @@ class StreamEngine:
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
             else:
-                # If no active VC, create one via assistant (userbot) first.
-                # pytgcalls v1.x has a bug where it uses the wrong client for CreateGroupCall.
+                # Always resolve peer with assistant to ensure cached in assistant's pyrogram session
+                join_as_peer = None
                 if self.assistant:
                     try:
-                        import random
-                        from pyrogram.raw import functions, types as raw_types
-                        # get_chat caches the peer so resolve_peer works
                         await self.assistant.get_chat(chat_id)
-                        peer = await self.assistant.resolve_peer(chat_id)
-                        await self.assistant.invoke(
-                            functions.phone.CreateGroupCall(
-                                peer=peer,
-                                random_id=random.randint(10000, 99999),
-                            )
-                        )
-                        logger.info(f"[{chat_id}] Voice chat created by assistant.")
-                        await asyncio.sleep(1.5)  # let Telegram register the new VC
-                    except Exception as vc_err:
-                        err_str = str(vc_err)
-                        if "GROUPCALL_ALREADY_STARTED" in err_str or "already" in err_str.lower():
-                            logger.debug(f"[{chat_id}] VC already active, skipping create.")
+                        # Explicitly resolve assistant's own peer to join as assistant user
+                        me = await self.assistant.get_me()
+                        join_as_peer = await self.assistant.resolve_peer(me.id)
+                    except Exception as e:
+                        logger.warning(f"[{chat_id}] Peer caching failed: {e}")
+
+                # Use auto_start=False so pytgcalls does not trigger bot-incompatible create_group_call
+                try:
+                    await self.calls.join_group_call(
+                        chat_id,
+                        stream,
+                        join_as=join_as_peer,
+                        auto_start=False
+                    )
+                except Exception as e:
+                    from pytgcalls.exceptions import NoActiveGroupCall
+                    if isinstance(e, NoActiveGroupCall) or "NoActiveGroupCall" in str(e):
+                        # Voice chat is not running yet
+                        if self.assistant:
+                            try:
+                                import random
+                                from pyrogram.raw import functions
+                                peer = await self.assistant.resolve_peer(chat_id)
+                                await self.assistant.invoke(
+                                    functions.phone.CreateGroupCall(
+                                        peer=peer,
+                                        random_id=random.randint(10000, 99999),
+                                    )
+                                )
+                                logger.info(f"[{chat_id}] Voice chat created by assistant.")
+                                await asyncio.sleep(1.5)
+                                # Retry join with newly created group call
+                                await self.calls.join_group_call(
+                                    chat_id,
+                                    stream,
+                                    join_as=join_as_peer,
+                                    auto_start=False
+                                )
+                            except Exception as vc_err:
+                                logger.error(f"[{chat_id}] Failed to auto-create and join VC: {vc_err}")
+                                raise e
                         else:
-                            logger.warning(f"[{chat_id}] Could not auto-create VC: {vc_err}")
-                await self.calls.join_group_call(chat_id, stream)
+                            raise e
+                    else:
+                        raise e
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
 

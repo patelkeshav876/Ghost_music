@@ -121,21 +121,7 @@ def register(app):
                 st.current = track
                 st.is_playing = True
                 try:
-                    from pytgcalls.types.input_stream import AudioPiped
-                    from pytgcalls.types.input_stream.audio_parameters import AudioParameters
-                    stream = AudioPiped(
-                        track.url,
-                        audio_parameters=AudioParameters(bitrate=48000, channels=2),
-                    )
-                    active_chats = [c.chat_id for c in eng.calls.active_calls]
-                    if cb.message.chat.id in active_chats:
-                        await eng.calls.change_stream(cb.message.chat.id, stream)
-                    else:
-                        await eng.calls.join_group_call(cb.message.chat.id, stream)
-                    try:
-                        await eng.calls.change_volume_call(cb.message.chat.id, st.volume)
-                    except Exception:
-                        pass
+                    await eng._start_stream(cb.message.chat.id, track)
                 except Exception as e:
                     st.current = None; st.is_playing = False
                     await cb.message.edit_text(f"❌ Could not join voice chat: {e}")
