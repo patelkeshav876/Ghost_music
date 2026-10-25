@@ -76,6 +76,7 @@ class StreamEngine:
         self.calls     = calls
         self.bot       = bot
         self.assistant = assistant  # userbot — used to create group calls
+        self.assistant_user = None
         self.db        = db
         self._states: dict[int, ChatState] = {}
         self._locks:  dict[int, asyncio.Lock] = {}
@@ -163,72 +164,110 @@ class StreamEngine:
             active_chats = [c.chat_id for c in self.calls.active_calls]
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
-            else:
-                # ── Robust VC Resolution & Pre-check ────────────────────────
-                # pytgcalls get_call/get_full_chat checks Telegram's raw call object.
-                # If Telegram reports no call, or if no active VC exists, auto-create it
-                # via assistant account (since bots are forbidden by Telegram from calling CreateGroupCall).
+            else:                # -- Robust VC Resolution & Cache Pre-population -------------
+                # Try finding active voice chat via bot (group admin) or assistant
                 resolved_chat_id = chat_id
                 try:
                     resolved_chat_id = await self.calls._resolve_chat_id(chat_id)
                 except Exception:
                     pass
 
-                # Pre-fetch call to populate cache or detect need to create
-                existing_call = None
+                from pyrogram.raw import functions, types
+                input_call = None
+
+                # 1. Check via Bot client (Bot is already admin in group, Telegram returns full_chat.call)
                 try:
-                    existing_call = await self.calls._app.get_full_chat(resolved_chat_id)
-                except Exception as e:
-                    logger.debug(f"[{chat_id}] Initial get_full_chat check: {e}")
-
-                if existing_call is None and self.assistant:
-                    # Voice chat is not active or not in pytgcalls cache yet
-                    try:
-                        import random
-                        from pyrogram.raw import functions
-                        from pyrogram.raw.types import InputGroupCall, UpdateGroupCall, GroupCall
-
-                        # Ensure chat is cached in assistant
-                        await self.assistant.get_chat(chat_id)
-                        peer = await self.assistant.resolve_peer(chat_id)
-
-                        logger.info(f"[{chat_id}] Starting voice chat via assistant...")
-                        create_result = await self.assistant.invoke(
-                            functions.phone.CreateGroupCall(
-                                peer=peer,
-                                random_id=random.randint(10000, 99999),
+                    bot_peer = await self.bot.resolve_peer(chat_id)
+                    if isinstance(bot_peer, types.InputPeerChannel):
+                        full = await self.bot.invoke(
+                            functions.channels.GetFullChannel(
+                                channel=types.InputChannel(
+                                    channel_id=bot_peer.channel_id,
+                                    access_hash=bot_peer.access_hash,
+                                )
                             )
                         )
+                        if full and hasattr(full, "full_chat") and full.full_chat.call:
+                            input_call = full.full_chat.call
+                    elif isinstance(bot_peer, types.InputPeerChat):
+                        full = await self.bot.invoke(
+                            functions.messages.GetFullChat(chat_id=bot_peer.chat_id)
+                        )
+                        if full and hasattr(full, "full_chat") and full.full_chat.call:
+                            input_call = full.full_chat.call
+                    if input_call:
+                        logger.info(f"[{chat_id}] Found active Voice Chat via bot: id={input_call.id}")
+                except Exception as b_err:
+                    logger.debug(f"[{chat_id}] Bot GetFullChannel error: {b_err}")
 
-                        # Extract call details from Telegram updates response
-                        if hasattr(create_result, "updates"):
-                            for upd in create_result.updates:
-                                if isinstance(upd, UpdateGroupCall) and isinstance(upd.call, GroupCall):
-                                    if upd.call.schedule_date is None:
-                                        inp_call = InputGroupCall(
-                                            id=upd.call.id,
-                                            access_hash=upd.call.access_hash,
-                                        )
-                                        # Directly inject into pytgcalls client cache
-                                        try:
-                                            self.calls._app._bind_client._cache.set_cache(
-                                                resolved_chat_id,
-                                                inp_call,
+                # 2. Check via Assistant client if bot didn't find it
+                if input_call is None and self.assistant:
+                    try:
+                        asst_peer = await self.assistant.resolve_peer(chat_id)
+                        if isinstance(asst_peer, types.InputPeerChannel):
+                            full = await self.assistant.invoke(
+                                functions.channels.GetFullChannel(
+                                    channel=types.InputChannel(
+                                        channel_id=asst_peer.channel_id,
+                                        access_hash=asst_peer.access_hash,
+                                    )
+                                )
+                            )
+                            if full and hasattr(full, "full_chat") and full.full_chat.call:
+                                input_call = full.full_chat.call
+                        elif isinstance(asst_peer, types.InputPeerChat):
+                            full = await self.assistant.invoke(
+                                functions.messages.GetFullChat(chat_id=asst_peer.chat_id)
+                            )
+                            if full and hasattr(full, "full_chat") and full.full_chat.call:
+                                input_call = full.full_chat.call
+                        if input_call:
+                            logger.info(f"[{chat_id}] Found active Voice Chat via assistant: id={input_call.id}")
+                    except Exception as a_err:
+                        logger.debug(f"[{chat_id}] Assistant GetFullChannel error: {a_err}")
+
+                # 3. If call exists, populate pytgcalls cache directly
+                if input_call is not None:
+                    try:
+                        self.calls._app._bind_client._cache.set_cache(chat_id, input_call)
+                        self.calls._app._bind_client._cache.set_cache(resolved_chat_id, input_call)
+                        logger.info(f"[{chat_id}] Cached InputGroupCall ({input_call.id}) in pytgcalls cache.")
+                    except Exception as c_err:
+                        logger.debug(f"Cache injection error: {c_err}")
+                else:
+                    # Voice chat not active on Telegram yet; try auto-creating via assistant
+                    created = False
+                    if self.assistant:
+                        try:
+                            import random
+                            asst_peer = await self.assistant.resolve_peer(chat_id)
+                            create_res = await self.assistant.invoke(
+                                functions.phone.CreateGroupCall(
+                                    peer=asst_peer,
+                                    random_id=random.randint(10000, 99999),
+                                )
+                            )
+                            if hasattr(create_res, "updates"):
+                                for upd in create_res.updates:
+                                    if isinstance(upd, types.UpdateGroupCall) and isinstance(upd.call, types.GroupCall):
+                                        if upd.call.schedule_date is None:
+                                            inp_call = types.InputGroupCall(
+                                                id=upd.call.id,
+                                                access_hash=upd.call.access_hash,
                                             )
-                                            logger.info(f"[{chat_id}] Cached InputGroupCall ({inp_call.id}) in pytgcalls cache.")
-                                        except Exception as c_err:
-                                            logger.debug(f"Direct cache set: {c_err}")
+                                            self.calls._app._bind_client._cache.set_cache(chat_id, inp_call)
+                                            self.calls._app._bind_client._cache.set_cache(resolved_chat_id, inp_call)
+                                            created = True
+                                            break
+                            await asyncio.sleep(1.0)
+                        except Exception as create_err:
+                            logger.warning(f"[{chat_id}] Auto-create voice chat failed: {create_err}")
 
-                        await asyncio.sleep(1.0)
-                    except Exception as vc_err:
-                        err_text = str(vc_err)
-                        if "GROUPCALL_ALREADY_STARTED" in err_text or "already" in err_text.lower():
-                            logger.info(f"[{chat_id}] VC already active on Telegram.")
-                        else:
-                            logger.warning(f"[{chat_id}] Auto-create group call failed: {vc_err}")
+                    if not created:
+                        raise RuntimeError("NO_ACTIVE_GROUP_CALL")
 
-                # Join group call
-                await self.calls.join_group_call(chat_id, stream)
+                # Join group call with auto_start=False so pytgcalls never triggers bot-incompatible CreateGroupCall
+                await self.calls.join_group_call(chat_id, stream, auto_start=False)
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
 

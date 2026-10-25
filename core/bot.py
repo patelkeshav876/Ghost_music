@@ -108,6 +108,9 @@ class GhostMusicBot:
         try:
             await self.assistant.start()
             asst = await self.assistant.get_me()
+            self.assistant_user = asst
+            if self.stream:
+                self.stream.assistant_user = asst
             logger.info(f"Assistant logged in as @{asst.username} ({asst.id})")
         except Exception as e:
             logger.error(f"[CRITICAL] Assistant SESSION_STRING login FAILED: {e}")

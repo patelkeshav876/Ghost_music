@@ -18,7 +18,6 @@ from config.settings import cfg
 
 logger = logging.getLogger("handlers.music")
 
-
 def register(app):
     """Auto-called by GhostMusicBot._load_handlers()"""
 
@@ -120,34 +119,82 @@ def register(app):
                 # 2. join_group_call or change_stream as appropriate
                 await eng._start_stream(msg.chat.id, first)
             except Exception as e:
-                logger.error(f"Play error: {e}")
+
+                logger.exception(f"Play error in {msg.chat.id}: {e}")
+
                 err = str(e)
-                if "Peer id invalid" in err or "peer" in err.lower():
+
+                asst_display = "Assistant"
+
+                if hasattr(eng, "assistant_user") and eng.assistant_user:
+
+                    if getattr(eng.assistant_user, "username", None):
+
+                        asst_display = f"@{eng.assistant_user.username}"
+
+                    elif getattr(eng.assistant_user, "first_name", None):
+
+                        asst_display = eng.assistant_user.first_name
+
+                if "NO_ACTIVE_GROUP_CALL" in err or "NoActiveGroupCall" in err:
+
                     hint = (
-                        "❌ **Assistant not in group!**\n\n"
-                        "The assistant (userbot) account must be added to this group first.\n\n"
-                        "**Steps to fix:**\n"
-                        "1. Add the assistant account to this group as a member\n"
-                        "2. Start a Voice Chat in the group (tap the mic icon)\n"
-                        "3. Then retry `/play`"
-                    )
-                elif "BOT_METHOD_INVALID" in err or "CreateGroupCall" in err:
-                    hint = (
+
                         "❌ **No active Voice Chat found!**\n\n"
-                        "Please start a Voice Chat in the group first:\n"
-                        "Tap the **mic icon** in your group → **Start Voice Chat**\n\n"
-                        "Then retry `/play`"
+
+                        "Please start a Voice Chat in this group first:\n"
+
+                        "1. Tap the group title at the top\n"
+
+                        "2. Tap the **voice chat / video chat** icon → **Start Voice Chat**\n\n"
+
+                        "Then send `/play` again!"
+
                     )
-                elif "GROUPCALL_FORBIDDEN" in err or "forbidden" in err.lower():
+
+                elif any(k in err for k in ["GROUPCALL_FORBIDDEN", "CHAT_ADMIN_REQUIRED", "USER_BANNED", "BOT_METHOD_INVALID", "CreateGroupCall"]):
+
                     hint = (
-                        "❌ **Voice Chat permission denied!**\n\n"
-                        "Make sure the assistant account has permission to join voice chats in this group."
+
+                        f"❌ **Permission Issue for Assistant ({asst_display})**\n\n"
+
+                        f"Telegram prevented the assistant account from joining the voice chat.\n\n"
+
+                        f"**To Fix:**\n"
+
+                        f"1. Open group settings → **Administrators** → **Add Admin**\n"
+
+                        f"2. Select **{asst_display}** *(Note: this is the user account, NOT @Ghost_music_bot)*\n"
+
+                        f"3. Enable **Manage Video Chats**\n"
+
+                        f"4. Save and retry `/play`"
+
                     )
+
+                elif "Peer id invalid" in err or "peer" in err.lower():
+
+                    hint = (
+
+                        f"❌ **Assistant ({asst_display}) Not in Group!**\n\n"
+
+                        f"1. Add **{asst_display}** to this group as a member\n"
+
+                        f"2. Promote **{asst_display}** to Admin with **Manage Video Chats**\n"
+
+                        f"3. Retry `/play`"
+
+                    )
+
                 else:
+
                     hint = f"❌ Could not join voice chat.\n\nError: `{e}`"
+
                 await loading.edit(hint)
-                asyncio.create_task(delete_after(loading, 20))
-                asyncio.create_task(delete_after(msg, 20))
+
+                asyncio.create_task(delete_after(loading, 25))
+
+                asyncio.create_task(delete_after(msg, 25))
                 st.current = None; st.is_playing = False
                 return
 
@@ -511,7 +558,6 @@ def register(app):
             except Exception:
                 pass
 
-
     # ─── /promote ─────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["promote"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
@@ -628,7 +674,6 @@ def register(app):
         except Exception:
             pass
 
-
     # ─── Telegram file playback ───────────────────────────────────────────────
     async def _play_telegram_file(client, msg, rm, eng, db):
         media = rm.audio or rm.voice or rm.video
@@ -650,7 +695,6 @@ def register(app):
         else:
             st.current = track; st.is_playing = True
             await msg.reply(f"▶️ Playing: **{title}**")
-
 
 HELP_TEXT = """
 🎵 **GhostMusic Bot Commands**
