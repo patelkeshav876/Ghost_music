@@ -31,6 +31,9 @@ def register(app):
     @rate_limit
     @authorized_only
     async def play_cmd(client: Client, msg: Message):
+        if eng is None:
+            await msg.reply("Voice chat unavailable: SESSION_STRING is invalid/expired. Ask the bot owner to regenerate it.")
+            return
         query = " ".join(msg.command[1:]).strip()
 
         # Also accept a reply to an audio/video

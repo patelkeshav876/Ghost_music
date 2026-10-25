@@ -94,18 +94,33 @@ class GhostMusicBot:
         # Restore yt-dlp OAuth/cookie cache from MongoDB
         await self._restore_yt_dlp_cache()
 
-        # Start Pyrogram clients
+        # Start Pyrogram bot client
         await self.bot.start()
-        await self.assistant.start()
         me = await self.bot.get_me()
         logger.info(f"Bot logged in as @{me.username} ({me.id})")
 
+        # Start assistant -- wrapped so bot stays alive even if SESSION_STRING is stale
+        try:
+            await self.assistant.start()
+            asst = await self.assistant.get_me()
+            logger.info(f"Assistant logged in as @{asst.username} ({asst.id})")
+        except Exception as e:
+            logger.error(f"[CRITICAL] Assistant SESSION_STRING login FAILED: {e}")
+            logger.error("VC is DISABLED. Regenerate SESSION_STRING and update on Render.")
+            self.calls = None
+            self.stream = None
+
         # Start PyTgCalls
         if self.calls:
-            await self.calls.start()
-            logger.info("PyTgCalls engine started.")
+            try:
+                await self.calls.start()
+                logger.info("PyTgCalls engine started.")
+            except Exception as e:
+                logger.error(f"PyTgCalls start failed: {e}")
+                self.calls = None
+                self.stream = None
         else:
-            logger.warning("PyTgCalls engine not initialized. Voice chat features will be disabled.")
+            logger.warning("PyTgCalls not initialized. Voice chat features disabled.")
 
         # Load all handler modules dynamically
         self._load_handlers()
