@@ -360,6 +360,18 @@ def register(app):
         curr_song = st.current.title if st.current else "None"
         curr_source = st.current.source if st.current else "None"
 
+        import shutil, subprocess
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin:
+            try:
+                out = subprocess.run([ffmpeg_bin, "-version"], capture_output=True, text=True, timeout=2).stdout
+                ffmpeg_ver = out.splitlines()[0] if out else "Unknown"
+                ffmpeg_info = f"✅ Installed ({ffmpeg_ver[:35]})"
+            except Exception:
+                ffmpeg_info = f"✅ Installed at `{ffmpeg_bin}`"
+        else:
+            ffmpeg_info = "❌ NOT FOUND! (Audio streaming requires FFmpeg)"
+
         asst_in_group = "Unknown"
         asst_is_admin = False
         if hasattr(eng, "assistant_user") and eng.assistant_user:
@@ -385,6 +397,7 @@ def register(app):
             f"👤 **Assistant Account:** {asst_name} ({asst_user})\n"
             f"🆔 **Assistant ID:** `{asst_id}`\n"
             f"👥 **Assistant In Group:** {asst_in_group}\n"
+            f"🎬 **FFmpeg Engine:** {ffmpeg_info}\n"
             f"📡 **Connected to Voice Chat:** {'✅ Yes' if is_in_vc else '❌ No'}\n"
             f"🎵 **Current Song:** {curr_song} ({curr_source})\n"
             f"🔊 **Volume:** {st.volume}%\n"
@@ -393,6 +406,48 @@ def register(app):
             f"{tip}"
         )
         await msg.reply(text)
+
+
+    # ─── /testaudio / /beep ───────────────────────────────────────────────────
+    @bot.on_message(filters.command(["testaudio", "beep"], prefixes=cfg.COMMAND_PREFIX))
+    @rate_limit
+    @authorized_only
+    async def testaudio_cmd(client, msg):
+        import wave, math, struct, tempfile, os
+        from streaming.engine import Track
+        test_msg = await msg.reply("🔊 Generating 5-second test tone and streaming to Voice Chat...")
+        try:
+            fd, wav_path = tempfile.mkstemp(suffix="_test.wav", prefix="ghost_")
+            os.close(fd)
+            with wave.open(wav_path, "w") as wf:
+                wf.setnchannels(2)
+                wf.setsampwidth(2)
+                wf.setframerate(48000)
+                samples = []
+                for i in range(48000 * 5):
+                    val = int(32767 * 0.5 * math.sin(2 * math.pi * 440 * (i / 48000)))
+                    samples.append(struct.pack("<hh", val, val))
+                wf.writeframes(b"".join(samples))
+
+            test_track = Track(
+                title="GhostMusic Audio Test Tone (440Hz)",
+                url=wav_path,
+                webpage=wav_path,
+                duration=5,
+                thumbnail="",
+                requester_id=msg.from_user.id if msg.from_user else 0,
+                requester_name=msg.from_user.first_name if msg.from_user else "User",
+                chat_id=msg.chat.id,
+                source="test",
+            )
+            await eng._start_stream(msg.chat.id, test_track)
+            await test_msg.edit(
+                "🎶 **Test tone is streaming now!**\n\n"
+                "• If you hear the 440Hz beep: WebRTC and audio engine are working!\n"
+                "• If complete silence: Render is blocking UDP WebRTC audio packets."
+            )
+        except Exception as e:
+            await test_msg.edit(f"❌ Test audio failed:\n`{e}`")
 
     # ─── /volume ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["volume", "vol", "v"], prefixes=cfg.COMMAND_PREFIX))
