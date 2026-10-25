@@ -61,6 +61,7 @@ class Settings:
     YOUTUBE_API_KEY:    str    = field(default_factory=lambda: _optional("YOUTUBE_API_KEY"))
     YOUTUBE_CLIENT_ID:  str    = field(default_factory=lambda: _optional("YOUTUBE_CLIENT_ID"))
     YOUTUBE_CLIENT_SECRET: str = field(default_factory=lambda: _optional("YOUTUBE_CLIENT_SECRET"))
+    SAAVN_API_URL:         str = field(default_factory=lambda: _optional("SAAVN_API_URL"))
 
 
 

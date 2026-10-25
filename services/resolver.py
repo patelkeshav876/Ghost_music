@@ -131,15 +131,7 @@ class Resolver:
         except Exception as e:
             logger.warning(f"JioSaavn resolution failed: {e}")
 
-        # Primary Music Search: YouTube (official high-speed audio stream)
-        try:
-            tracks = await self._resolve_youtube(query, requester_id, requester_name, chat_id)
-            if tracks:
-                return tracks
-        except Exception as e:
-            logger.warning(f"YouTube resolution failed: {e}")
-
-        # Fallback to Jamendo if YouTube fails
+        # Fallback 1: Jamendo
         try:
             tracks = await self._resolve_jamendo(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -147,8 +139,17 @@ class Resolver:
         except Exception as e:
             logger.warning(f"Jamendo resolution failed: {e}")
 
-        # Last resort fallback: Archive.org
-        return await self._resolve_archive(query, requester_id, requester_name, chat_id)
+        # Fallback 2: Archive.org
+        try:
+            tracks = await self._resolve_archive(query, requester_id, requester_name, chat_id)
+            if tracks:
+                return tracks
+        except Exception as e:
+            logger.warning(f"Archive.org resolution failed: {e}")
+
+        # Last Resort Fallback: YouTube (used only when no other providers work)
+        logger.info(f"All direct providers exhausted for '{query}', falling back to YouTube as last resort")
+        return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
 
     # ─────────────────────────────────────────────────────────────────────────
     async def _resolve_jamendo(
@@ -258,12 +259,27 @@ class Resolver:
         self, query: str, req_id: int, req_name: str, chat_id: int
     ) -> list[Track]:
         import aiohttp
-        # Try a few popular public API instances
-        endpoints = [
-            "https://saavn.dev/api/search/songs",
+        endpoints = []
+        if cfg.SAAVN_API_URL:
+            for url in cfg.SAAVN_API_URL.split(","):
+                u = url.strip().rstrip("/")
+                if u:
+                    if not u.endswith("/search/songs"):
+                        if u.endswith("/api"):
+                            u = f"{u}/search/songs"
+                        else:
+                            u = f"{u}/api/search/songs"
+                    endpoints.append(u)
+
+        # Fallback public instances
+        default_endpoints = [
             "https://saavn.sumit.co/api/search/songs",
+            "https://saavn.dev/api/search/songs",
             "https://jiosaavn-api.vercel.app/api/search/songs"
         ]
+        for ep in default_endpoints:
+            if ep not in endpoints:
+                endpoints.append(ep)
         
         for base_url in endpoints:
             try:
