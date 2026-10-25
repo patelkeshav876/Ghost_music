@@ -16,6 +16,11 @@ import pyrogram.errors
 if not hasattr(pyrogram.errors, "GroupcallForbidden"):
     class GroupcallForbidden(Exception): pass
     pyrogram.errors.GroupcallForbidden = GroupcallForbidden
+# ── HOTFIX: Telegram extended channel IDs (up to 64-bit integers) ─────────────
+# Pyrogram 2.0.106 has MIN_CHANNEL_ID = -1002147483647 (capped at 2^31-1).
+# Modern Telegram channels and supergroups have IDs like -1003885728979.
+import pyrogram.utils
+pyrogram.utils.MIN_CHANNEL_ID = -100999999999999
 # ─────────────────────────────────────────────────────────────────────────────
 
 from pytgcalls import PyTgCalls
