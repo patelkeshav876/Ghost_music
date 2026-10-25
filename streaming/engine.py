@@ -164,6 +164,29 @@ class StreamEngine:
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
             else:
+                # If no active VC, create one via assistant (userbot) first.
+                # pytgcalls v1.x has a bug where it uses the wrong client for CreateGroupCall.
+                if self.assistant:
+                    try:
+                        import random
+                        from pyrogram.raw import functions, types as raw_types
+                        # get_chat caches the peer so resolve_peer works
+                        await self.assistant.get_chat(chat_id)
+                        peer = await self.assistant.resolve_peer(chat_id)
+                        await self.assistant.invoke(
+                            functions.phone.CreateGroupCall(
+                                peer=peer,
+                                random_id=random.randint(10000, 99999),
+                            )
+                        )
+                        logger.info(f"[{chat_id}] Voice chat created by assistant.")
+                        await asyncio.sleep(1.5)  # let Telegram register the new VC
+                    except Exception as vc_err:
+                        err_str = str(vc_err)
+                        if "GROUPCALL_ALREADY_STARTED" in err_str or "already" in err_str.lower():
+                            logger.debug(f"[{chat_id}] VC already active, skipping create.")
+                        else:
+                            logger.warning(f"[{chat_id}] Could not auto-create VC: {vc_err}")
                 await self.calls.join_group_call(chat_id, stream)
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
