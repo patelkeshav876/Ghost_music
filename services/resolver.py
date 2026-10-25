@@ -123,7 +123,7 @@ class Resolver:
         if _YT_REGEX.match(query):
             return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
 
-        # Plain text search → Search JioSaavn first!
+        # Plain text search → Search JioSaavn first for direct stream
         try:
             tracks = await self._resolve_jiosaavn(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -131,7 +131,15 @@ class Resolver:
         except Exception as e:
             logger.warning(f"JioSaavn resolution failed: {e}")
 
-        # Search Jamendo next!
+        # Primary Music Search: YouTube (official high-speed audio stream)
+        try:
+            tracks = await self._resolve_youtube(query, requester_id, requester_name, chat_id)
+            if tracks:
+                return tracks
+        except Exception as e:
+            logger.warning(f"YouTube resolution failed: {e}")
+
+        # Fallback to Jamendo if YouTube fails
         try:
             tracks = await self._resolve_jamendo(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -139,16 +147,8 @@ class Resolver:
         except Exception as e:
             logger.warning(f"Jamendo resolution failed: {e}")
 
-        # Search Archive.org next!
-        try:
-            tracks = await self._resolve_archive(query, requester_id, requester_name, chat_id)
-            if tracks:
-                return tracks
-        except Exception as e:
-            logger.warning(f"Archive.org resolution failed: {e}")
-
-        # Fallback to YouTube
-        return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
+        # Last resort fallback: Archive.org
+        return await self._resolve_archive(query, requester_id, requester_name, chat_id)
 
     # ─────────────────────────────────────────────────────────────────────────
     async def _resolve_jamendo(
