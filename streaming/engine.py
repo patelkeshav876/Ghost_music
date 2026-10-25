@@ -267,7 +267,35 @@ class StreamEngine:
                         raise RuntimeError("NO_ACTIVE_GROUP_CALL")
 
                 # Join group call with auto_start=False so pytgcalls never triggers bot-incompatible CreateGroupCall
-                await self.calls.join_group_call(chat_id, stream, auto_start=False)
+                try:
+                    await self.calls.join_group_call(chat_id, stream, auto_start=False)
+                except Exception as join_err:
+                    if "GROUPCALL_INVALID" in str(join_err):
+                        logger.warning(f"[{chat_id}] Cached group call invalid. Invalidate cache and retry...")
+                        try:
+                            self.calls._app._bind_client._cache.drop_cache(chat_id)
+                            self.calls._app._bind_client._cache.drop_cache(resolved_chat_id)
+                        except Exception:
+                            pass
+                        bot_peer = await self.bot.resolve_peer(chat_id)
+                        if isinstance(bot_peer, types.InputPeerChannel):
+                            full = await self.bot.invoke(
+                                functions.channels.GetFullChannel(
+                                    channel=types.InputChannel(
+                                        channel_id=bot_peer.channel_id,
+                                        access_hash=bot_peer.access_hash,
+                                    )
+                                )
+                            )
+                            if full and hasattr(full, "full_chat") and full.full_chat.call:
+                                input_call = full.full_chat.call
+                                self.calls._app._bind_client._cache.set_cache(chat_id, input_call)
+                                self.calls._app._bind_client._cache.set_cache(resolved_chat_id, input_call)
+                                await self.calls.join_group_call(chat_id, stream, auto_start=False)
+                            else:
+                                raise RuntimeError("NO_ACTIVE_GROUP_CALL")
+                    else:
+                        raise join_err
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
 
