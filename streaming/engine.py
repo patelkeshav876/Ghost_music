@@ -164,7 +164,39 @@ class StreamEngine:
             active_chats = [c.chat_id for c in self.calls.active_calls]
             if chat_id in active_chats:
                 await self.calls.change_stream(chat_id, stream)
-            else:                # -- Robust VC Resolution & Cache Pre-population -------------
+            else:
+                # ── 0. Ensure Assistant is a member of the group ─────────────
+                if self.assistant:
+                    asst_id = self.assistant_user.id if self.assistant_user else None
+                    in_group = False
+                    if asst_id:
+                        try:
+                            m = await self.bot.get_chat_member(chat_id, asst_id)
+                            if m and m.status not in ("left", "kicked"):
+                                in_group = True
+                        except Exception:
+                            in_group = False
+
+                    if not in_group:
+                        logger.info(f"[{chat_id}] Assistant is not in group. Auto-adding...")
+                        added = False
+                        if asst_id:
+                            try:
+                                await self.bot.add_chat_members(chat_id, asst_id)
+                                added = True
+                                logger.info(f"[{chat_id}] Assistant added to group by bot.")
+                            except Exception as add_err:
+                                logger.debug(f"[{chat_id}] Bot add_chat_members failed: {add_err}")
+
+                        if not added:
+                            try:
+                                invite = await self.bot.export_chat_invite_link(chat_id)
+                                await self.assistant.join_chat(invite)
+                                logger.info(f"[{chat_id}] Assistant joined group via invite link.")
+                            except Exception as join_err:
+                                logger.warning(f"[{chat_id}] Assistant auto-join failed: {join_err}")
+
+                # -- Robust VC Resolution & Cache Pre-population -------------
                 # Try finding active voice chat via bot (group admin) or assistant
                 resolved_chat_id = chat_id
                 try:
