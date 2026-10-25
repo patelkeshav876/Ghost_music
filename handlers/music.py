@@ -345,6 +345,34 @@ def register(app):
         except Exception:
             pass
 
+    # ─── /status / /vc ────────────────────────────────────────────────────────
+    @bot.on_message(filters.command(["status", "vc"], prefixes=cfg.COMMAND_PREFIX))
+    @rate_limit
+    async def status_cmd(client, msg):
+        asst_id = eng.assistant_user.id if hasattr(eng, "assistant_user") and eng.assistant_user else "Unknown"
+        asst_name = eng.assistant_user.first_name if hasattr(eng, "assistant_user") and eng.assistant_user else "Unknown"
+        asst_user = f"@{eng.assistant_user.username}" if hasattr(eng, "assistant_user") and eng.assistant_user and eng.assistant_user.username else asst_name
+
+        active_chats = [c.chat_id for c in eng.calls.active_calls] if eng.calls else []
+        is_in_vc = msg.chat.id in active_chats
+
+        st = eng.state(msg.chat.id)
+        curr_song = st.current.title if st.current else "None"
+        curr_source = st.current.source if st.current else "None"
+
+        text = (
+            f"🎧 **GhostMusic Voice Status**\n\n"
+            f"🤖 **Bot:** @{(await client.get_me()).username}\n"
+            f"👤 **Assistant Account:** {asst_name} ({asst_user})\n"
+            f"🆔 **Assistant ID:** `{asst_id}`\n"
+            f"📡 **Connected to Voice Chat:** {'✅ Yes' if is_in_vc else '❌ No'}\n"
+            f"🎵 **Current Song:** {curr_song} ({curr_source})\n"
+            f"🔊 **Volume:** {st.volume}%\n"
+            f"⏸ **Is Paused:** {st.is_paused}\n"
+            f"📑 **Queue Length:** {len(st.queue)}"
+        )
+        await msg.reply(text)
+
     # ─── /volume ──────────────────────────────────────────────────────────────
     @bot.on_message(filters.command(["volume", "vol", "v"], prefixes=cfg.COMMAND_PREFIX))
     @rate_limit
