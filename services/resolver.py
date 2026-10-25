@@ -123,7 +123,8 @@ class Resolver:
         if _YT_REGEX.match(query):
             return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
 
-        # Plain text search → Search JioSaavn first for direct stream
+        # Plain text search
+        # 1. Direct JioSaavn search
         try:
             tracks = await self._resolve_jiosaavn(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -131,7 +132,32 @@ class Resolver:
         except Exception as e:
             logger.warning(f"JioSaavn resolution failed: {e}")
 
-        # Fallback 1: Jamendo
+        # 2. Spotify metadata enhancement -> JioSaavn stream
+        # Uses your Spotify Client ID & Secret to get accurate track & artist names, then streams via JioSaavn
+        if self._spotify:
+            try:
+                loop = asyncio.get_event_loop()
+                sp_res = await loop.run_in_executor(
+                    None,
+                    lambda: self._spotify.search(q=query, type="track", limit=1)
+                )
+                items = sp_res.get("tracks", {}).get("items", []) if sp_res else []
+                if items:
+                    sp_track = items[0]
+                    sp_title = sp_track.get("name", "")
+                    sp_artist = sp_track["artists"][0]["name"] if sp_track.get("artists") else ""
+                    clean_query = f"{sp_title} {sp_artist}".strip()
+                    logger.info(f"Identified via Spotify: '{clean_query}', fetching JioSaavn stream...")
+                    tracks = await self._resolve_jiosaavn(clean_query, requester_id, requester_name, chat_id)
+                    if tracks:
+                        tracks[0].source = "spotify"
+                        if sp_track.get("album", {}).get("images"):
+                            tracks[0].thumbnail = sp_track["album"]["images"][0]["url"]
+                        return tracks
+            except Exception as sp_err:
+                logger.debug(f"Spotify metadata search failed: {sp_err}")
+
+        # 3. Fallback 1: Jamendo
         try:
             tracks = await self._resolve_jamendo(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -139,7 +165,7 @@ class Resolver:
         except Exception as e:
             logger.warning(f"Jamendo resolution failed: {e}")
 
-        # Fallback 2: Archive.org
+        # 4. Fallback 2: Archive.org
         try:
             tracks = await self._resolve_archive(query, requester_id, requester_name, chat_id)
             if tracks:
@@ -147,7 +173,7 @@ class Resolver:
         except Exception as e:
             logger.warning(f"Archive.org resolution failed: {e}")
 
-        # Last Resort Fallback: YouTube (used only when no other providers work)
+        # 5. Last Resort Fallback: YouTube (used only when no other providers work)
         logger.info(f"All direct providers exhausted for '{query}', falling back to YouTube as last resort")
         return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
 
@@ -725,11 +751,15 @@ class Resolver:
         if not searches:
             raise ValueError("Spotify credentials not configured and public scraping failed.")
 
-        # Resolve each search term → YouTube
+        # Resolve each search term → JioSaavn first, fallback to YouTube
         tracks = []
         for s in searches[:cfg.MAX_PLAYLIST_SIZE]:
             try:
-                result = await self._resolve_youtube(s, req_id, req_name, chat_id)
+                # 1. Stream via JioSaavn CDN (fast, 320kbps, no YouTube cookie issues)
+                result = await self._resolve_jiosaavn(s, req_id, req_name, chat_id)
+                if not result:
+                    # 2. Fallback to YouTube only if JioSaavn doesn't have it
+                    result = await self._resolve_youtube(s, req_id, req_name, chat_id)
                 if result:
                     t = result[0]
                     t.source = "spotify"
@@ -737,7 +767,7 @@ class Resolver:
             except Exception:
                 pass
         if not tracks:
-            raise ValueError("Could not find any Spotify tracks on YouTube.")
+            raise ValueError("Could not find any audio for this Spotify track.")
         return tracks
 
     # ─────────────────────────────────────────────────────────────────────────
