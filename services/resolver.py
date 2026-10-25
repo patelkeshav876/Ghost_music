@@ -157,24 +157,8 @@ class Resolver:
             except Exception as sp_err:
                 logger.debug(f"Spotify metadata search failed: {sp_err}")
 
-        # 3. Fallback 1: Jamendo
-        try:
-            tracks = await self._resolve_jamendo(query, requester_id, requester_name, chat_id)
-            if tracks:
-                return tracks
-        except Exception as e:
-            logger.warning(f"Jamendo resolution failed: {e}")
-
-        # 4. Fallback 2: Archive.org
-        try:
-            tracks = await self._resolve_archive(query, requester_id, requester_name, chat_id)
-            if tracks:
-                return tracks
-        except Exception as e:
-            logger.warning(f"Archive.org resolution failed: {e}")
-
-        # 5. Last Resort Fallback: YouTube (used only when no other providers work)
-        logger.info(f"All direct providers exhausted for '{query}', falling back to YouTube as last resort")
+        # 3. Fallback: YouTube (only if JioSaavn doesn't have the song)
+        logger.info(f"JioSaavn exhausted for '{query}', falling back to YouTube")
         return await self._resolve_youtube(query, requester_id, requester_name, chat_id)
 
     # ─────────────────────────────────────────────────────────────────────────
