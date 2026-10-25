@@ -271,6 +271,21 @@ class StreamEngine:
 
             logger.info(f"[{chat_id}] Streaming: {track.title}")
 
+            # Unmute assistant in voice chat via admin bot client (bypasses "New members muted")
+            try:
+                if input_call and self.assistant:
+                    asst_peer = await self.assistant.resolve_peer("me")
+                    await self.bot.invoke(
+                        functions.phone.EditGroupCallMember(
+                            call=input_call,
+                            participant=asst_peer,
+                            muted=False,
+                        )
+                    )
+                    logger.info(f"[{chat_id}] Assistant microphone unmuted by admin bot.")
+            except Exception as unmute_err:
+                logger.debug(f"[{chat_id}] Auto-unmute note: {unmute_err}")
+
             try:
                 await self.calls.change_volume_call(chat_id, st.volume)
             except Exception:

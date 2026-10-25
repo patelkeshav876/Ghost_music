@@ -74,7 +74,15 @@ def register(app):
 
         st = eng.state(msg.chat.id)
 
-        if st.is_playing:
+        # Check if actually actively streaming in the call right now
+        is_active_in_call = False
+        if eng.calls:
+            try:
+                is_active_in_call = msg.chat.id in [c.chat_id for c in eng.calls.active_calls]
+            except Exception:
+                is_active_in_call = False
+
+        if st.is_playing and is_active_in_call:
             # Queue all resolved tracks
             positions = []
             for t in tracks:
@@ -101,6 +109,8 @@ def register(app):
             asyncio.create_task(delete_after(loading, 10))
             asyncio.create_task(delete_after(msg, 10))
         else:
+            # Not currently streaming in call or player was stuck -> clear queue and play immediately!
+            st.queue.clear()
             # Start playing immediately with the first track
             first = tracks[0]
             for t in tracks[1:]:
